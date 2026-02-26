@@ -26,6 +26,9 @@ up:
 .PHONY: up-ci
 up-ci:
 	@docker ps -a --format "{{.Names}}" | grep -qx hatori-pg && docker start hatori-pg || docker run -d --name hatori-pg -e POSTGRES_PASSWORD=hatori -e POSTGRES_USER=hatori -e POSTGRES_DB=hatori pgvector/pgvector:pg16
+	@echo "Waiting for Postgres readiness (hatori-pg)..."
+	@for i in $$(seq 1 30); do docker exec hatori-pg pg_isready -U hatori -d hatori >/dev/null 2>&1 && break; sleep 1; done
+	@docker exec hatori-pg pg_isready -U hatori -d hatori >/dev/null 2>&1 || (echo "FAIL: Postgres not ready in container hatori-pg"; exit 1)
 
 .PHONY: down-ci
 down-ci:
