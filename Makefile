@@ -14,7 +14,7 @@ test:
 	./tools/scripts/db_lock_contention_test.sh
 	./tools/scripts/self_test.sh
 	./tools/scripts/dod_gate.sh
-	python3 tests/golden/run_golden.py
+	. .venv/bin/activate && python tests/golden/run_golden.py
 
 .PHONY: run-ui
 run-ui:

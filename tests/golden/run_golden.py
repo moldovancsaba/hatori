@@ -16,14 +16,14 @@ from hatori.prompts import RUNTIME_SYSTEM_PATH
 from hatori.prompts import TASK_TEMPLATE_PATH
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
-HAS_UI_TEST_DEPS = True
-UI_IMPORT_ERROR = ""
 try:
     from fastapi.testclient import TestClient
     from ui.app import app as ui_app
 except Exception as exc:
-    HAS_UI_TEST_DEPS = False
-    UI_IMPORT_ERROR = str(exc)
+    raise RuntimeError(
+        "UI test dependencies unavailable. Install ui/requirements.txt before running tests. "
+        f"Import error: {exc}"
+    ) from exc
 
 FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "offline_playbook.txt"
 SEMANTIC_FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "semantic_garage.txt"
@@ -91,13 +91,7 @@ def ingest_fixture(path: Path) -> dict:
     return run_cli_json(["ingest", str(path), "--json"])
 
 
-class SkipTest(Exception):
-    pass
-
-
 def ui_client():
-    if not HAS_UI_TEST_DEPS:
-        raise SkipTest(f"UI test dependencies unavailable: {UI_IMPORT_ERROR}")
     return TestClient(ui_app)
 
 
@@ -450,6 +444,30 @@ def test_43_chat_get_returns_200() -> None:
     assert_true(resp.status_code == 200, "GET /chat should return 200")
     assert_true("Chat" in resp.text, "/chat page should render chat content")
 
+    old_model = os.environ.get("HATORI_MODEL")
+    old_path = os.environ.get("HATORI_LLAMA_MODEL")
+    os.environ["HATORI_MODEL"] = "llamacpp"
+    os.environ.pop("HATORI_LLAMA_MODEL", None)
+    try:
+        chat_id = "golden-chat-43-misconfig"
+        send = client.post("/chat/send", data={"chat_id": chat_id, "message": "check misconfig handling"})
+        assert_true(send.status_code in {200, 303}, "chat send should not crash when llama config is missing")
+        assistant_text = db_scalar(
+            "SELECT content FROM interaction_events "
+            f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+            "ORDER BY occurred_at DESC LIMIT 1;"
+        ).lower()
+        assert_true("hatori_llama_model" in assistant_text or "model error" in assistant_text, "misconfigured llama should return clear chat error text")
+    finally:
+        if old_model is None:
+            os.environ.pop("HATORI_MODEL", None)
+        else:
+            os.environ["HATORI_MODEL"] = old_model
+        if old_path is None:
+            os.environ.pop("HATORI_LLAMA_MODEL", None)
+        else:
+            os.environ["HATORI_LLAMA_MODEL"] = old_path
+
 
 def test_44_chat_send_creates_user_and_assistant_rows() -> None:
     client = ui_client()
@@ -469,6 +487,14 @@ def test_44_chat_send_creates_user_and_assistant_rows() -> None:
         )
     )
     assert_true(after == before + 2, "chat send should create user+assistant interaction rows")
+    assistant_text = db_scalar(
+        "SELECT content FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    lower = assistant_text.lower()
+    assert_true("2) answer / recommendation" in lower, "assistant output should follow default template")
+    assert_true("placeholder" not in lower and "dummy" not in lower and "tbd" not in lower, "assistant output must be real text")
 
 
 def test_45_chat_send_metadata_linking() -> None:
@@ -486,7 +512,13 @@ def test_45_chat_send_metadata_linking() -> None:
         f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
         "ORDER BY occurred_at DESC LIMIT 1;"
     )
+    assistant_language = db_scalar(
+        "SELECT COALESCE(metadata->>'language','') FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
     assert_true(user_id != "" and assistant_related == user_id, "assistant message metadata should link to user interaction")
+    assert_true(assistant_language == "en", "assistant metadata language should follow user message language")
 
 
 def test_46_feedback_up_creates_positive_learning() -> None:
@@ -568,8 +600,6 @@ def test_49_upload_txt_creates_artefact_and_embeddings() -> None:
 
 
 def test_50_upload_content_searchable_in_ui() -> None:
-    if not HAS_UI_TEST_DEPS:
-        raise SkipTest(f"UI test dependencies unavailable: {UI_IMPORT_ERROR}")
     out = run_cli_json(["search", "UploadFixtureToken-0401", "--json", "--limit", "5"])
     assert_true(len(out.get("results", [])) >= 1, "uploaded txt token should be searchable")
     client = ui_client()
@@ -645,14 +675,10 @@ def main() -> None:
         tests = tests[: args.subset]
 
     failures: list[str] = []
-    skipped = 0
     for idx, test_fn in enumerate(tests, start=1):
         try:
             test_fn()
             print(f"PASS {idx:02d} {test_fn.__name__}")
-        except SkipTest as exc:
-            skipped += 1
-            print(f"SKIP {idx:02d} {test_fn.__name__}: {exc}")
         except Exception as exc:
             failures.append(f"FAIL {idx:02d} {test_fn.__name__}: {exc}")
 
@@ -660,8 +686,6 @@ def main() -> None:
         print("\n".join(failures))
         raise SystemExit(1)
 
-    if skipped:
-        print(f"INFO: skipped tests ({skipped} cases)")
     print(f"PASS: golden tests ({len(tests)} cases)")
 
 

@@ -44,8 +44,10 @@ Llama.cpp adapter (local/offline, user-provided model path):
 
 ```bash
 export HATORI_MODEL=llamacpp
-export HATORI_LLAMACPP_MODEL_PATH=/absolute/path/to/model.gguf
-export HATORI_LLAMACPP_BIN=llama-cli
+export HATORI_LLAMA_MODEL=/absolute/path/to/model.gguf
+export HATORI_LLAMA_BIN=llama-cli
+export HATORI_LLAMA_CTX=4096
+export HATORI_LLAMA_THREADS=4
 python -m hatori.cli model-smoke "Respond in one sentence"
 ```
 
@@ -109,5 +111,5 @@ Expected behavior:
   - Or unset `HATORI_EMBED_BACKEND` to use deterministic `hash-v1`.
 - Llama.cpp model smoke fails:
   - Verify `HATORI_MODEL=llamacpp`.
-  - Verify `HATORI_LLAMACPP_MODEL_PATH` points to a local `.gguf` file.
-  - Verify `llama-cli` is installed or set `HATORI_LLAMACPP_BIN` to the local executable path.
+  - Verify `HATORI_LLAMA_MODEL` points to a local `.gguf` file.
+  - Verify `llama-cli` is installed or set `HATORI_LLAMA_BIN` to the local executable path.

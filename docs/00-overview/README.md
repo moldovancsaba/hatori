@@ -80,8 +80,10 @@ Build a long-lived personal agent ("Hatori") that:
   - `HATORI_MODEL=llamacpp` (local llama.cpp adapter)
 - Local llama.cpp setup (offline; model file provided by user):
   - `export HATORI_MODEL=llamacpp`
-  - `export HATORI_LLAMACPP_MODEL_PATH=/absolute/path/to/model.gguf`
-  - optional: `export HATORI_LLAMACPP_BIN=llama-cli`
+  - `export HATORI_LLAMA_MODEL=/absolute/path/to/model.gguf`
+  - optional: `export HATORI_LLAMA_BIN=llama-cli`
+  - optional: `export HATORI_LLAMA_CTX=4096`
+  - optional: `export HATORI_LLAMA_THREADS=4`
   - smoke test: `python -m hatori.cli model-smoke "Respond with one short line"`
 
 ## Planning
