@@ -2,6 +2,18 @@
 
 All notable changes to this project are tracked here.
 
+## [0.2.0] - 2026-02-26
+
+### Added
+- Offline embeddings adapter boundary in `hatori/embeddings.py` with deterministic local hashing backend (`hash-v1`) and optional local `sentence-transformers` backend.
+- Semantic retrieval over `pgvector` embeddings, merged with keyword retrieval for `hatori ask` and `hatori search`.
+- New fixture for semantic behavior checks: `tests/golden/fixtures/semantic_garage.txt`.
+
+### Changed
+- `hatori ingest` now stores non-null vectors in `embeddings.embedding` plus embedding provenance metadata (`embedder`, `embed_dim`, source path/index).
+- Golden tests expanded from 10 to 30 property-focused cases, including offline gating, pending-governance gating, memory patch gating, citation integrity, and semantic search behavior.
+- Local docs/runbooks updated for offline embeddings usage, optional local dependency setup, and troubleshooting.
+
 ## [0.1.1] - 2026-02-26
 
 ### Fixed
