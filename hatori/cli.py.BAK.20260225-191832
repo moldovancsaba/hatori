@@ -1,0 +1,79 @@
+import os, sys, json, uuid, subprocess
+
+CID = os.environ.get("CID", "hatori-pg")
+
+def psql(sql: str) -> str:
+    cmd = ["docker", "exec", "-i", CID, "psql", "-U", "hatori", "-d", "hatori", "-t", "-A", "-c", sql]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise SystemExit(r.stderr.strip() or "psql failed")
+    return r.stdout.strip()
+
+def ping() -> None:
+    out = psql("SELECT 1;")
+    print("OK" if out == "1" else out)
+
+def log(role: str, content: str, meta: dict) -> None:
+    eid = str(uuid.uuid4())
+    meta_json = json.dumps(meta)
+    sql = (
+        "INSERT INTO interaction_events (id, role, content, metadata) "
+        f"VALUES (\x27{eid}\x27, \x27{role}\x27, \x27" + content.replace("\x27","\x27\x27") + "\x27, "
+        f"\x27{meta_json}\x27::jsonb);"
+    )
+    psql(sql)
+    print(eid)
+
+def last_interaction_id() -> str | None:
+    out = psql("SELECT id FROM interaction_events ORDER BY occurred_at DESC LIMIT 1;")
+    return out if out else None
+
+def feedback(kind: str, confidence: str, details: dict, interaction_id: str | None) -> None:
+    lid = str(uuid.uuid4())
+    det_json = json.dumps(details)
+    if interaction_id:
+        sql = ("INSERT INTO learning_events (id, kind, confidence, details, related_interaction_id) "
+               f"VALUES (\x27{lid}\x27, \x27{kind}\x27, \x27{confidence}\x27, \x27{det_json}\x27::jsonb, \x27{interaction_id}\x27);")
+    else:
+        sql = ("INSERT INTO learning_events (id, kind, confidence, details) "
+               f"VALUES (\x27{lid}\x27, \x27{kind}\x27, \x27{confidence}\x27, \x27{det_json}\x27::jsonb);")
+    psql(sql)
+    print(lid)
+
+def main(argv: list[str]) -> None:
+    if len(argv) < 2:
+        raise SystemExit("Usage: hatori <ping|log|feedback> ...")
+    cmd = argv[1]
+    if cmd == "ping":
+        ping(); return
+    if cmd == "log":
+        if len(argv) < 4:
+            raise SystemExit("Usage: hatori log <role> <content>")
+        role = argv[2]
+        content = " ".join(argv[3:])
+        log(role, content, {"source": "cli"}); return
+    if cmd == "feedback":
+        # Usage:
+        #   hatori feedback <kind> <confidence> <details_json> [interaction_id]
+        #   hatori feedback --last <kind> <confidence> <details_json>
+        if len(argv) >= 2 and argv[2] == "--last":
+            if len(argv) < 6:
+                raise SystemExit("Usage: hatori feedback --last <kind> <confidence> <details_json>")
+            kind = argv[3]
+            confidence = argv[4]
+            details = json.loads(argv[5])
+            interaction_id = last_interaction_id()
+            if not interaction_id:
+                raise SystemExit("No interactions found to attach feedback to.")
+            feedback(kind, confidence, details, interaction_id); return
+        if len(argv) < 5:
+            raise SystemExit("Usage: hatori feedback <kind> <confidence> <details_json> [interaction_id]")
+        kind = argv[2]
+        confidence = argv[3]
+        details = json.loads(argv[4])
+        interaction_id = argv[5] if len(argv) >= 6 else None
+        feedback(kind, confidence, details, interaction_id); return
+    raise SystemExit(f"Unknown command: {cmd}")
+
+if __name__ == "__main__":
+    main(sys.argv)
