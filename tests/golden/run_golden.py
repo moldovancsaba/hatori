@@ -1,12 +1,12 @@
 import json
-import os
 from pathlib import Path
-import re
 import subprocess
 import sys
+import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "offline_playbook.txt"
+SEMANTIC_FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "semantic_garage.txt"
 
 
 def run(cmd: list[str], expect_ok: bool = True) -> subprocess.CompletedProcess:
@@ -36,6 +36,38 @@ def db_scalar(sql: str) -> str:
 def assert_true(cond: bool, message: str) -> None:
     if not cond:
         raise AssertionError(message)
+
+
+def sql_escape(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def upsert_pending_record(module: str, title: str, body: str) -> str:
+    rid = str(uuid.uuid4())
+    sql = (
+        "INSERT INTO pks_records (id,module,title,body,status,provenance,confidence,scope) "
+        f"VALUES ('{rid}','{module}','{sql_escape(title)}','{sql_escape(body)}','Pending','User','High','Personal');"
+    )
+    db_scalar(sql)
+    return rid
+
+
+def upsert_approved_record(module: str, title: str, body: str) -> str:
+    rid = str(uuid.uuid4())
+    sql = (
+        "INSERT INTO pks_records (id,module,title,body,status,provenance,confidence,scope) "
+        f"VALUES ('{rid}','{module}','{sql_escape(title)}','{sql_escape(body)}','Approved','User','High','Personal');"
+    )
+    db_scalar(sql)
+    return rid
+
+
+def get_artefact_id_for_uri(uri: str) -> str:
+    return db_scalar(f"SELECT id FROM artefacts WHERE uri='{sql_escape(uri)}' ORDER BY created_at DESC LIMIT 1;")
+
+
+def ingest_fixture(path: Path) -> dict:
+    return run_cli_json(["ingest", str(path), "--json"])
 
 
 def test_01_ask_json_shape() -> None:
@@ -98,7 +130,7 @@ def test_06_done_signal_learning() -> None:
 
 def test_07_ingest_creates_artefact() -> None:
     before = int(db_scalar("SELECT count(*) FROM artefacts;"))
-    out = run_cli_json(["ingest", str(FIXTURE), "--json"])
+    out = ingest_fixture(FIXTURE)
     after = int(db_scalar("SELECT count(*) FROM artefacts;"))
     assert_true(out["artefacts_created"] >= 1, "ingest should create artefact")
     assert_true(after == before + 1, "Artefact count should increase by 1 for fixture ingest")
@@ -106,20 +138,50 @@ def test_07_ingest_creates_artefact() -> None:
 
 def test_08_ingest_creates_chunks() -> None:
     before = int(db_scalar("SELECT count(*) FROM embeddings;"))
-    out = run_cli_json(["ingest", str(FIXTURE), "--json"])
+    out = ingest_fixture(FIXTURE)
     after = int(db_scalar("SELECT count(*) FROM embeddings;"))
     assert_true(out["chunks_created"] >= 1, "ingest should create chunks")
     assert_true(after > before, "Embedding chunk count should increase")
 
 
-def test_09_search_keyword() -> None:
+def test_09_ingest_stores_non_null_vectors() -> None:
+    ingest_fixture(FIXTURE)
+    cnt = int(db_scalar("SELECT count(*) FROM embeddings WHERE embedding IS NOT NULL;"))
+    assert_true(cnt >= 1, "Embeddings must store non-null vectors")
+
+
+def test_10_embedding_metadata_has_embedder() -> None:
+    ingest_fixture(FIXTURE)
+    embedder = db_scalar("SELECT metadata->>'embedder' FROM embeddings ORDER BY created_at DESC LIMIT 1;")
+    dim = db_scalar("SELECT metadata->>'embed_dim' FROM embeddings ORDER BY created_at DESC LIMIT 1;")
+    assert_true(embedder != "", "Embedding metadata must include adapter name")
+    assert_true(int(dim) > 0, "Embedding metadata must include positive dimension")
+
+
+def test_11_search_keyword() -> None:
     out = run_cli_json(["search", "NightlyWarmupChecklistToken", "--json", "--limit", "5"])
     assert_true(len(out["results"]) >= 1, "search should return at least one result")
     text = json.dumps(out, ensure_ascii=False)
     assert_true("NightlyWarmupChecklistToken" in text, "search should surface fixture token")
 
 
-def test_10_citations_are_real_and_no_web_claims() -> None:
+def test_12_search_result_fields() -> None:
+    out = run_cli_json(["search", "NightlyWarmupChecklistToken", "--json", "--limit", "5"])
+    row = out["results"][0]
+    assert_true("excerpt" in row and row["excerpt"] != "", "Result must include non-empty excerpt")
+    assert_true("provenance" in row, "Result must include provenance")
+    if row["citation"].startswith("emb:"):
+        assert_true(bool(row.get("artefact_id")), "Embedding result must include artefact_id")
+
+
+def test_13_ask_no_web_claims() -> None:
+    out = run_cli_json(["ask", "NightlyWarmupChecklistToken steps", "--json"])
+    text = json.dumps(out, ensure_ascii=False).lower()
+    assert_true("http://" not in text and "https://" not in text, "Offline ask output must not include web links")
+    assert_true("verified" not in text, "Offline ask must not claim verification")
+
+
+def test_14_ask_citations_are_real() -> None:
     out = run_cli_json(["ask", "NightlyWarmupChecklistToken steps", "--json"])
     for e in out.get("evidence", []):
         citation = e.get("citation", "")
@@ -134,15 +196,122 @@ def test_10_citations_are_real_and_no_web_claims() -> None:
         else:
             raise AssertionError(f"Unexpected citation prefix: {citation}")
 
-    text = json.dumps(out, ensure_ascii=False).lower()
-    assert_true("http://" not in text and "https://" not in text, "Offline ask output must not include web links")
-    assumptions_text = " ".join(out.get("assumptions", []))
-    assert_true("Not verified (offline)" in assumptions_text, "Offline disclaimer missing")
+
+def test_15_search_citations_are_real() -> None:
+    out = run_cli_json(["search", "NightlyWarmupChecklistToken", "--json", "--limit", "8"])
+    for e in out.get("results", []):
+        citation = e.get("citation", "")
+        assert_true(citation.startswith("pks:") or citation.startswith("emb:"), f"Unexpected citation: {citation}")
+
+
+def test_16_pending_b_excluded_from_ask_default() -> None:
+    rid = upsert_pending_record("B", "B pending only marker", "B-PENDING-MARKER-0216")
+    out = run_cli_json(["ask", "B-PENDING-MARKER-0216", "--json"])
+    text = json.dumps(out, ensure_ascii=False)
+    assert_true(rid not in text, "Pending B record should be excluded by default")
+
+
+def test_17_pending_b_included_with_allow_pending() -> None:
+    rid = upsert_pending_record("B", "B pending allow marker", "B-PENDING-MARKER-0217")
+    out = run_cli_json(["ask", "B-PENDING-MARKER-0217", "--allow-pending", "--json"])
+    text = json.dumps(out, ensure_ascii=False)
+    assert_true(rid in text, "Pending B record should be included with --allow-pending")
+
+
+def test_18_pending_df_excluded_from_search_default() -> None:
+    rid_d = upsert_pending_record("D", "D pending marker", "D-PENDING-MARKER-0218")
+    rid_f = upsert_pending_record("F", "F pending marker", "F-PENDING-MARKER-0218")
+    out = run_cli_json(["search", "PENDING-MARKER-0218", "--json", "--limit", "10"])
+    text = json.dumps(out, ensure_ascii=False)
+    assert_true(rid_d not in text and rid_f not in text, "Pending D/F records should be excluded by default")
+
+
+def test_19_pending_df_included_with_allow_pending() -> None:
+    rid_d = upsert_pending_record("D", "D pending marker allow", "D-PENDING-MARKER-0219")
+    rid_f = upsert_pending_record("F", "F pending marker allow", "F-PENDING-MARKER-0219")
+    out = run_cli_json(["search", "PENDING-MARKER-0219", "--allow-pending", "--json", "--limit", "10"])
+    text = json.dumps(out, ensure_ascii=False)
+    assert_true(rid_d in text and rid_f in text, "Pending D/F records should be included with --allow-pending")
+
+
+def test_20_memory_patch_not_auto_capture() -> None:
+    out = run_cli_json(["ask", "Remember this forever: transient note", "--json"])
+    assert_true(out["memory_patch"] == "No memory changes.", "Memory patch must not auto-appear without explicit flow")
+
+
+def test_21_memory_patch_not_in_search_payload() -> None:
+    out = run_cli_json(["search", "NightlyWarmupChecklistToken", "--json"])
+    assert_true("memory_patch" not in out, "Search payload should not include memory patch")
+
+
+def test_22_no_fabricated_source_prefixes() -> None:
+    out = run_cli_json(["ask", "nightly checklist", "--json"])
+    for e in out.get("evidence", []):
+        citation = e.get("citation", "")
+        assert_true(citation.startswith("pks:") or citation.startswith("emb:"), "Citations must be local PKS or embeddings")
+
+
+def test_23_semantic_ingest_fixture() -> None:
+    out = ingest_fixture(SEMANTIC_FIXTURE)
+    assert_true(out["artefacts_created"] >= 1, "Semantic fixture ingest should create artefact")
+    aid = get_artefact_id_for_uri(str(SEMANTIC_FIXTURE))
+    assert_true(aid != "", "Semantic fixture artefact id should exist")
+
+
+def test_24_semantic_search_matches_without_exact_keyword() -> None:
+    out = run_cli_json(["search", "car upkeep checklist", "--json", "--limit", "10"])
+    sem_aid = get_artefact_id_for_uri(str(SEMANTIC_FIXTURE))
+    ids = [r.get("artefact_id") for r in out.get("results", []) if r.get("artefact_id")]
+    assert_true(sem_aid in ids, "Semantic search should return semantic fixture artefact_id")
+
+
+def test_25_semantic_search_query_word_absent_in_chunk() -> None:
+    token_count = int(
+        db_scalar("SELECT count(*) FROM embeddings WHERE content ILIKE '%car%' AND artefact_id IS NOT NULL;")
+    )
+    assert_true(token_count == 0, "Semantic fixture chunks should avoid literal 'car' token")
+    out = run_cli_json(["search", "car maintenance routine", "--json", "--limit", "10"])
+    sem_aid = get_artefact_id_for_uri(str(SEMANTIC_FIXTURE))
+    ids = [r.get("artefact_id") for r in out.get("results", []) if r.get("artefact_id")]
+    assert_true(sem_aid in ids, "Semantic retrieval should work when exact token is absent")
+
+
+def test_26_no_web_claims_in_search_payload() -> None:
+    out = run_cli_json(["search", "nightly checklist", "--json"])
+    txt = json.dumps(out, ensure_ascii=False).lower()
+    assert_true("http://" not in txt and "https://" not in txt, "Search payload should remain offline/local")
+
+
+def test_27_search_limit_respected() -> None:
+    out = run_cli_json(["search", "nightly checklist", "--json", "--limit", "3"])
+    assert_true(len(out["results"]) <= 3, "Search must respect result limit")
+
+
+def test_28_ask_no_evidence_fallback() -> None:
+    out = run_cli_json(["ask", "ZZZ_UNLIKELY_TOKEN_028", "--json"])
+    assert_true(len(out["evidence"]) == 0, "Unmatched query should return no evidence")
+    assert_true("cannot answer this confidently" in out["answer"], "Ask fallback text should be used")
+
+
+def test_29_approved_record_still_retrievable() -> None:
+    rid = upsert_approved_record("A", "Approved marker", "APPROVED-MARKER-029")
+    out = run_cli_json(["search", "APPROVED-MARKER-029", "--json", "--limit", "5"])
+    text = json.dumps(out, ensure_ascii=False)
+    assert_true(rid in text, "Approved PKS records should be retrievable")
+
+
+def test_30_provenance_fields_present_for_embedding_results() -> None:
+    out = run_cli_json(["search", "NightlyWarmupChecklistToken", "--json", "--limit", "10"])
+    emb_rows = [r for r in out.get("results", []) if r.get("citation", "").startswith("emb:")]
+    assert_true(len(emb_rows) >= 1, "Expected at least one embedding result")
+    row = emb_rows[0]
+    assert_true(bool(row.get("provenance")), "Embedding result should include provenance")
+    assert_true(bool(row.get("artefact_id")), "Embedding result should include artefact_id")
 
 
 def main() -> None:
-    # Deterministic state for golden tests.
     run(["./tools/scripts/db_reset.sh"], expect_ok=True)
+    ingest_fixture(FIXTURE)
 
     tests = [
         test_01_ask_json_shape,
@@ -153,8 +322,28 @@ def main() -> None:
         test_06_done_signal_learning,
         test_07_ingest_creates_artefact,
         test_08_ingest_creates_chunks,
-        test_09_search_keyword,
-        test_10_citations_are_real_and_no_web_claims,
+        test_09_ingest_stores_non_null_vectors,
+        test_10_embedding_metadata_has_embedder,
+        test_11_search_keyword,
+        test_12_search_result_fields,
+        test_13_ask_no_web_claims,
+        test_14_ask_citations_are_real,
+        test_15_search_citations_are_real,
+        test_16_pending_b_excluded_from_ask_default,
+        test_17_pending_b_included_with_allow_pending,
+        test_18_pending_df_excluded_from_search_default,
+        test_19_pending_df_included_with_allow_pending,
+        test_20_memory_patch_not_auto_capture,
+        test_21_memory_patch_not_in_search_payload,
+        test_22_no_fabricated_source_prefixes,
+        test_23_semantic_ingest_fixture,
+        test_24_semantic_search_matches_without_exact_keyword,
+        test_25_semantic_search_query_word_absent_in_chunk,
+        test_26_no_web_claims_in_search_payload,
+        test_27_search_limit_respected,
+        test_28_ask_no_evidence_fallback,
+        test_29_approved_record_still_retrievable,
+        test_30_provenance_fields_present_for_embedding_results,
     ]
 
     failures: list[str] = []
