@@ -6,10 +6,15 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import Any
 import uuid
+
+from hatori.embeddings import EmbeddingsAdapter
+from hatori.embeddings import get_embeddings_adapter
 
 CID = os.environ.get("CID", "hatori-pg")
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+_EMBED_ADAPTER: EmbeddingsAdapter | None = None
 
 
 def _esc_sql(s: str) -> str:
@@ -30,6 +35,17 @@ def psql_json(sql: str) -> list[dict]:
     if not out:
         return []
     return json.loads(out)
+
+
+def embedding_adapter() -> EmbeddingsAdapter:
+    global _EMBED_ADAPTER
+    if _EMBED_ADAPTER is None:
+        _EMBED_ADAPTER = get_embeddings_adapter()
+    return _EMBED_ADAPTER
+
+
+def vector_sql_literal(vector: list[float]) -> str:
+    return "[" + ",".join(f"{x:.8f}" for x in vector) + "]"
 
 
 def ping() -> None:
@@ -220,15 +236,70 @@ def retrieve_embeddings(question: str, limit: int = 8) -> list[dict]:
             {
                 "source_type": "embedding",
                 "citation": f"emb:{row['chunk_id']}",
-                "score": s,
+                "score": float(s),
                 "title": row.get("title") or row.get("uri") or "(local artefact)",
                 "excerpt": content.strip()[:220],
+                "artefact_id": row.get("artefact_id"),
                 "artefact_uri": row.get("uri"),
                 "provenance": "LocalDoc",
             }
         )
     scored.sort(key=lambda x: x["score"], reverse=True)
     return scored[:limit]
+
+
+def retrieve_embeddings_semantic(question: str, limit: int = 8) -> list[dict]:
+    adapter = embedding_adapter()
+    query_vec = adapter.embed([question])[0]
+    query_vec_sql = _esc_sql(vector_sql_literal(query_vec))
+    query_terms = set(tokenize(question))
+    sql_limit = max(limit * 4, 24)
+    rows = psql_json(
+        "SELECT e.id, e.chunk_id, e.content, e.artefact_id, e.metadata, a.uri, a.title, "
+        f"(e.embedding <=> \x27{query_vec_sql}\x27::vector) AS distance "
+        "FROM embeddings e "
+        "LEFT JOIN artefacts a ON a.id = e.artefact_id "
+        "WHERE e.embedding IS NOT NULL "
+        f"ORDER BY e.embedding <=> \x27{query_vec_sql}\x27::vector ASC LIMIT {sql_limit}"
+    )
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        content = row.get("content") or ""
+        content_terms = set(tokenize(content))
+        if query_terms and not (query_terms & content_terms):
+            continue
+        dist = float(row.get("distance", 1.0) or 1.0)
+        score = 1.0 / (1.0 + max(0.0, dist))
+        if score < 0.30:
+            continue
+        results.append(
+            {
+                "source_type": "embedding_semantic",
+                "citation": f"emb:{row['chunk_id']}",
+                "score": score,
+                "title": row.get("title") or row.get("uri") or "(local artefact)",
+                "excerpt": content.strip()[:220],
+                "artefact_id": row.get("artefact_id"),
+                "artefact_uri": row.get("uri"),
+                "provenance": "LocalDoc",
+            }
+        )
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:limit]
+
+
+def merge_rank_results(candidates: list[dict], limit: int) -> list[dict]:
+    by_citation: dict[str, dict] = {}
+    for item in candidates:
+        key = item.get("citation", "")
+        if not key:
+            continue
+        current = by_citation.get(key)
+        if current is None or float(item.get("score", 0.0)) > float(current.get("score", 0.0)):
+            by_citation[key] = item
+    merged = list(by_citation.values())
+    merged.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+    return merged[:limit]
 
 
 def render_ask_text(payload: dict) -> str:
@@ -261,8 +332,9 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
     classification = classify_request(question)
 
     pks_hits = retrieve_pks(question, allow_pending=allow_pending, limit=6)
-    emb_hits = retrieve_embeddings(question, limit=6)
-    merged = sorted(pks_hits + emb_hits, key=lambda x: x["score"], reverse=True)[:6]
+    emb_kw_hits = retrieve_embeddings(question, limit=6)
+    emb_sem_hits = retrieve_embeddings_semantic(question, limit=6)
+    merged = merge_rank_results(pks_hits + emb_kw_hits + emb_sem_hits, limit=6)
 
     evidence = merged
     if evidence:
@@ -279,7 +351,7 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
         )
 
     assumptions = [
-        "Not verified (offline): no web or third-party live sources were used.",
+        "Unconfirmed (offline): no web or third-party live sources were used.",
         "Only local PKS and local artefact chunks were considered.",
     ]
 
@@ -393,6 +465,7 @@ def ingest(path_str: str) -> dict:
     chunks_created = 0
     skipped: list[dict] = []
     ingested: list[dict] = []
+    adapter = embedding_adapter()
 
     skip_ext = {
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".zip", ".gz", ".tar", ".tgz", ".7z", ".mp3",
@@ -429,13 +502,23 @@ def ingest(path_str: str) -> dict:
         audit("ingest", "artefact", artefact_id, {"path": str(fpath), "chunks": len(chunks)})
         artefacts_created += 1
 
+        vectors = adapter.embed(chunks)
         for i, chunk in enumerate(chunks):
             emb_id = str(uuid.uuid4())
             chunk_id = f"{artefact_id}:{i}"
-            cmeta = {"source": "cli.ingest", "index": i, "path": str(fpath)}
+            cmeta = {
+                "source": "cli.ingest",
+                "index": i,
+                "path": str(fpath),
+                "embedder": adapter.name,
+                "embed_dim": adapter.dimension,
+            }
+            emb_sql = _esc_sql(vector_sql_literal(vectors[i]))
             psql(
                 "INSERT INTO embeddings (id, artefact_id, chunk_id, content, embedding, metadata) "
-                f"VALUES (\x27{emb_id}\x27, \x27{artefact_id}\x27, \x27{_esc_sql(chunk_id)}\x27, \x27{_esc_sql(chunk)}\x27, NULL, \x27{_esc_sql(json.dumps(cmeta, ensure_ascii=False))}\x27::jsonb);"
+                f"VALUES (\x27{emb_id}\x27, \x27{artefact_id}\x27, \x27{_esc_sql(chunk_id)}\x27, "
+                f"\x27{_esc_sql(chunk)}\x27, \x27{emb_sql}\x27::vector, "
+                f"\x27{_esc_sql(json.dumps(cmeta, ensure_ascii=False))}\x27::jsonb);"
             )
             chunks_created += 1
 
@@ -454,8 +537,9 @@ def ingest(path_str: str) -> dict:
 
 def search_runtime(query: str, limit: int, allow_pending: bool) -> dict:
     pks_hits = retrieve_pks(query, allow_pending=allow_pending, limit=limit)
-    emb_hits = retrieve_embeddings(query, limit=limit)
-    merged = sorted(pks_hits + emb_hits, key=lambda x: x["score"], reverse=True)[:limit]
+    emb_kw_hits = retrieve_embeddings(query, limit=limit)
+    emb_sem_hits = retrieve_embeddings_semantic(query, limit=limit)
+    merged = merge_rank_results(pks_hits + emb_kw_hits + emb_sem_hits, limit=limit)
     return {
         "query": query,
         "limit": limit,
@@ -627,6 +711,8 @@ def main(argv: list[str]) -> None:
                 for row in payload["results"]:
                     print(f"- [{row['citation']}] score={row['score']} title={row['title']}")
                     print(f"  excerpt={row['excerpt']}")
+                    if row.get("artefact_id"):
+                        print(f"  artefact_id={row['artefact_id']} provenance={row.get('provenance', 'unknown')}")
         return
 
     raise SystemExit("Unknown command: " + cmd)

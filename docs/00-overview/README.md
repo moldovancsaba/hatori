@@ -30,6 +30,23 @@ Build a long-lived personal agent ("Hatori") that:
 - `python -m hatori.cli search "<query>" [--limit N] [--allow-pending] [--json]`
 - Golden tests: `python tests/golden/run_golden.py` (also wired into `make test`)
 
+## Offline ingest + search
+- Ingest local files into `artefacts` + chunked `embeddings`:
+  - `python -m hatori.cli ingest tests/golden/fixtures/offline_playbook.txt --json`
+- Search merges keyword hits with semantic pgvector ranking:
+  - `python -m hatori.cli search "nightly checklist" --json --limit 5`
+  - `python -m hatori.cli search "car upkeep checklist" --json --limit 5`
+
+## Embeddings design
+- Adapter boundary: `hatori/embeddings.py` (`embed(texts: list[str]) -> list[list[float]]`)
+- Default backend: deterministic local hash embeddings (`hash-v1`) for CI-safe offline operation.
+- Optional backend: local `sentence-transformers` model from disk (`HATORI_EMBED_BACKEND=sentence-transformers`, `HATORI_EMBED_MODEL_PATH=/abs/model/path`).
+- Vectors are stored in `embeddings.embedding` (`pgvector` column), with provenance in `embeddings.metadata`:
+  - `path`
+  - `index`
+  - `embedder`
+  - `embed_dim`
+
 ## Planning
 - Roadmap: docs/11-roadmap/roadmap.md
 - Backlog: docs/11-roadmap/backlog.md
