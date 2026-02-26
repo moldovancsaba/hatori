@@ -1,0 +1,7 @@
+Hatori Offline Operations Playbook
+
+NightlyWarmupChecklistToken: Before opening a support shift, verify local backup status, confirm database reachability, and review pending PKS records.
+
+If the agent cannot answer from local records, ingest a local document and approve the relevant PKS decision.
+
+This note is intentionally local-first and contains no external URL.

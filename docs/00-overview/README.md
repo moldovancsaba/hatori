@@ -20,8 +20,15 @@ Build a long-lived personal agent ("Hatori") that:
 - Architecture decisions: `docs/02-architecture/`, ADRs in `docs/08-decisions/`
 - PKS spec and schema: `docs/03-data/`, `pks/`
 - Ops/runbooks: `docs/04-ops/`, `docs/07-runbooks/`
+  - Versioning rule: `docs/04-ops/versioning-release.md`
 - Evaluation: `docs/06-evaluation/`, golden tests in `tests/golden/`
 - Audit/event logs: `logs/audit/`, `logs/events/`
+
+## Runtime MVP commands (current)
+- `python -m hatori.cli ask "<question>" [--allow-pending] [--done] [--json]`
+- `python -m hatori.cli ingest <path> [--json]`
+- `python -m hatori.cli search "<query>" [--limit N] [--allow-pending] [--json]`
+- Golden tests: `python tests/golden/run_golden.py` (also wired into `make test`)
 
 ## Planning
 - Roadmap: docs/11-roadmap/roadmap.md

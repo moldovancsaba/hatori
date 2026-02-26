@@ -85,6 +85,11 @@ Sprint 01 focuses on governance + usability:
 2) UI: PKS detail page `/pks/<uuid>` (review body before approval)
 3) UI: export-to-disk snapshot under `artefacts/exports/` + create `artefacts` row
 4) CLI: PKS state changes (approve/deprecate/contest) must also write `audit_events`
+5) Delivery hygiene (mandatory for every task):
+   - update affected documentation/runbooks
+   - update versioning artefacts (`VERSION` and `CHANGELOG.md`)
+   - commit all task changes
+   - push to `origin/main`
 
 All changes must preserve:
 - `make up`

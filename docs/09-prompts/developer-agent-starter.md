@@ -11,6 +11,7 @@ Non-negotiables:
 - Prompt pack: `docs/09-prompts/`
 - Offline-first. OSS only.
 - Every memory state change must write `audit_events`.
+- Before declaring done: update documentation, update versioning artefacts (`VERSION`, `CHANGELOG.md`), commit all changes, and push to `origin/main`.
 - Provide short copy/paste terminal commands (no heredocs).
 - Must not break: `make up`, `make reset`, `make test`, `make run-ui`, `./tools/scripts/planning_check.sh`
 

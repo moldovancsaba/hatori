@@ -171,6 +171,12 @@ Source hierarchy:
 2) Reputable secondary
 3) Community sources only if labelled + corroborated
 
+Engineering delivery hygiene (mandatory when modifying the repository):
+- Always update relevant documentation/runbooks.
+- Always update versioning artefacts (`VERSION`, `CHANGELOG.md`).
+- Always commit all related changes.
+- Always push the resulting commit(s) to `origin/main`.
+
 ================================================================================
 8) MODULAR SYSTEM DESIGN (LLM-SWAPPABLE) + LOCAL/OSS CONSTRAINTS
 ================================================================================

@@ -1,40 +1,61 @@
-# Sprint 01 — Next 10 Tasks
+# Sprint 01 — Runtime MVP (Offline-First)
 
-This sprint focuses on **governance + UX** so the system becomes usable daily.
+Goal: convert the governance foundation into a usable daily runtime loop without breaking charter guarantees.
 
-## T1 — UI: approve/deprecate reason capture
-- Add optional textarea “reason”
-- Store reason in `audit_events.details`
+## Scope
 
-## T2 — UI: PKS detail page
-- `/pks/<uuid>` shows title/body/metadata + approve/deprecate buttons
+1) `hatori ask "<question>"` offline runtime path
+- Classifies request (`Daily task` / `Project work` / `System upkeep`)
+- Retrieves local PKS + local chunk evidence
+- Produces required default template sections
+- Logs user+agent interactions to module I (`interaction_events`)
+- Logs implicit positive to module J only when explicitly signaled (`--done`)
 
-## T3 — UI: export-to-disk snapshot
-- Button writes `artefacts/exports/export-YYYYMMDD-HHMMSS.json`
-- Register in `artefacts` table
+2) `hatori ingest <path>` local ingestion
+- Registers artefact rows
+- Chunks local text content and stores in `embeddings.content`
+- Keeps `embedding` nullable for now (keyword-first retrieval baseline)
 
-## T4 — CLI: PKS governance completeness
-- Ensure `approve/deprecate/contest` all create `audit_events`
+3) `hatori search "<query>"` local retrieval
+- Keyword retrieval over PKS and ingested chunks
+- Returns ranked local results with citations
 
-## T5 — CLI: safer argument validation
-- UUID validation everywhere
-- refuse invalid module/status
+4) Golden tests (10 cases)
+- Offline gating assertions
+- Output template presence assertions
+- No fabricated source IDs
+- Memory Patch behavior guard
+- I/J logging behavior guard
 
-## T6 — Runbook: end-to-end daily workflow
-- 2–5 minute daily capture
-- what goes to Pending, when to approve
+## Acceptance Criteria
 
-## T7 — Ops: backup script
-- DB dump + artefacts archive
-- restore instructions
+- `make test` passes end-to-end.
+- `hatori ask` always returns offline-safe template with:
+  - Connectivity State
+  - Answer / Recommendation
+  - Evidence & Sources
+  - Assumptions & Uncertainties
+  - Next Actions
+  - Memory Patch
+  - Learning Log (J)
+- `hatori ingest` increases `artefacts` and `embeddings` rows for valid text files.
+- `hatori search` returns local ranked matches for ingested keywords.
+- `hatori ask --done` writes one low-confidence `ImplicitPositive` learning event.
+- Delivery hygiene enforced:
+  - docs updated
+  - `VERSION` + `CHANGELOG.md` updated
+  - all changes committed
+  - pushed to `origin/main`
 
-## T8 — Evaluation: golden test skeleton (10 tests)
-- offline gating
-- fabricated citations guard
-- Memory Patch schema guard
+## Verification Commands
 
-## T9 — Ingestion skeleton
-- `hatori ingest <path>` registers artefact + chunks to embeddings.content
+```bash
+make up
+make reset
+make test
 
-## T10 — Retrieval skeleton
-- `hatori search "<query>"` keyword search over embeddings.content + pks_records.body
+python -m hatori.cli ask "How should I use the charter?"
+python -m hatori.cli ingest tests/golden/fixtures/offline_playbook.txt --json
+python -m hatori.cli search "NightlyWarmupChecklistToken" --json
+python -m hatori.cli ask "NightlyWarmupChecklistToken steps" --json
+```

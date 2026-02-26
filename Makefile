@@ -12,6 +12,7 @@ reset:
 
 test:
 	./tools/scripts/self_test.sh
+	. .venv/bin/activate && python tests/golden/run_golden.py
 
 .PHONY: run-ui
 run-ui:
