@@ -2,7 +2,7 @@
 
 All notable changes to this project are tracked here.
 
-## [0.4.0] - 2026-02-26
+## [0.3.0] - 2026-02-26
 
 ### Added
 - Chat UI route (`/chat`) with conversation timeline, message send form, and assistant response logging.

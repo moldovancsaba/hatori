@@ -5,7 +5,7 @@ Copy/paste this entire prompt into your developer agent.
 ---
 
 You are implementing Hatori inside `/Users/moldovancsaba/Projects/reply-hatori`.
-Baseline tag: `v0.4.0`
+Baseline tag: `v0.3.0`
 
 Non-negotiables:
 - Canonical policy: `docs/01-charters/hatori-charter-v3.md`

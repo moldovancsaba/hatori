@@ -90,7 +90,7 @@ Build a long-lived personal agent ("Hatori") that:
 - Sprint 01: docs/11-roadmap/sprint-01.md
 
 ## Release
-- Current stable release: `v0.4.0`
+- Current stable release: `v0.3.0`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
 
 ## Prompt Pack
