@@ -28,7 +28,17 @@ Build a long-lived personal agent ("Hatori") that:
 - `python -m hatori.cli ask "<question>" [--allow-pending] [--done] [--json]`
 - `python -m hatori.cli ingest <path> [--json]`
 - `python -m hatori.cli search "<query>" [--limit N] [--allow-pending] [--json]`
+- `python -m hatori.cli consistency-check [--subset N] [--json]`
+- `python -m hatori.cli model-smoke "<prompt>"`
 - Golden tests: `python tests/golden/run_golden.py` (also wired into `make test`)
+
+## POC loop (Sprint 03)
+- `make up`
+- `./tools/scripts/planning_check.sh`
+- `python -m hatori.cli ingest tests/golden/fixtures/offline_playbook.txt --json`
+- `python -m hatori.cli search "nightly checklist" --json --limit 5`
+- `HATORI_MODEL=none python -m hatori.cli ask "Summarize local checklist risks" --json`
+- `python -m hatori.cli consistency-check --subset 8`
 
 ## Offline ingest + search
 - Ingest local files into `artefacts` + chunked `embeddings`:
@@ -47,13 +57,24 @@ Build a long-lived personal agent ("Hatori") that:
   - `embedder`
   - `embed_dim`
 
+## Model adapter boundary
+- Adapter module: `hatori/model.py`
+- Selection via env:
+  - `HATORI_MODEL=none` (default deterministic `NullAdapter`)
+  - `HATORI_MODEL=llamacpp` (local llama.cpp adapter)
+- Local llama.cpp setup (offline; model file provided by user):
+  - `export HATORI_MODEL=llamacpp`
+  - `export HATORI_LLAMACPP_MODEL_PATH=/absolute/path/to/model.gguf`
+  - optional: `export HATORI_LLAMACPP_BIN=llama-cli`
+  - smoke test: `python -m hatori.cli model-smoke "Respond with one short line"`
+
 ## Planning
 - Roadmap: docs/11-roadmap/roadmap.md
 - Backlog: docs/11-roadmap/backlog.md
 - Sprint 01: docs/11-roadmap/sprint-01.md
 
 ## Release
-- Current handoff-ready release tag: `v0.1.1`
+- Current handoff-ready release tag: `v0.2.0`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
 
 ## Prompt Pack
