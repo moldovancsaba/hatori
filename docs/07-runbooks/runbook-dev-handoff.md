@@ -55,7 +55,7 @@ git status -sb
 ```
 Expected:
 - branch up to date with `origin/main`
-- no unexpected merge conflicts
+- working tree clean (`## main...origin/main` with no `M` or `??` lines)
 
 ```bash
 make up
