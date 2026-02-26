@@ -5,6 +5,7 @@ Copy/paste this entire prompt into your developer agent.
 ---
 
 You are implementing Hatori inside `/Users/moldovancsaba/Projects/reply-hatori`.
+Baseline tag: `v0.3.0`
 
 Non-negotiables:
 - Canonical policy: `docs/01-charters/hatori-charter-v3.md`
@@ -15,15 +16,20 @@ Non-negotiables:
 - Provide short copy/paste terminal commands (no heredocs).
 - Must not break: `make up`, `make reset`, `make test`, `make run-ui`, `./tools/scripts/planning_check.sh`
 
-First objectives (Sprint 01):
-1) UI: add “reason” input for approve/deprecate and store it in `audit_events.details`.
-2) UI: add PKS detail page `/pks/<uuid>` showing record body + approve/deprecate.
-3) UI: add export-to-disk button that writes JSON snapshot under `artefacts/exports/` and registers the artefact in the `artefacts` table.
-4) CLI: ensure `hatori pks approve/deprecate/contest` also writes `audit_events`.
+Current objectives (Sprint 04 baseline):
+1) Chat UI + feedback loop:
+   - `/chat`, `/chat/send`, `/chat/feedback`
+   - feedback writes `learning_events` linked to assistant interaction IDs
+2) Upload + retrieval UI:
+   - `/upload` saves artefacts and ingests parseable files into `embeddings`
+   - `/search` displays local results with provenance
+3) Keep governance and auditability intact:
+   - no auto-write to A–H without explicit action
+   - PKS status changes write `audit_events`
 
 Acceptance tests:
-- After approve/deprecate in UI, `audit_events` row exists with `actor=ui`, `action=approve|deprecate`, `target_id=<uuid>`, `details` contains reason (if provided).
-- `/pks/<uuid>` renders and works.
-- Export creates a file and an `artefacts` row.
 - `make reset && make test` passes.
 - `planning_check.sh` passes.
+- `/chat` send flow creates user+assistant `interaction_events` with `chat_id`.
+- Chat feedback creates linked `learning_events` (`related_interaction_id` = assistant id).
+- `/upload` creates artefact + embedding chunks for `.txt`/`.md`.

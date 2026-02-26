@@ -64,9 +64,22 @@ make up
 Expected final lines:
 - `PASS: self_test`
 - `PASS: dod_gate`
-- `PASS: golden tests (10 cases)`
+- `PASS: golden tests (50 cases)`
 - `UI app present: True`
 - `OK: planning check complete`
+
+Sprint 04 chat/upload verification:
+```bash
+PORT=8093 make run-ui-hatori
+curl -s -o /dev/null -w "GET_CHAT_HTTP=%{http_code}\n" http://127.0.0.1:8093/chat
+curl -s -o /dev/null -w "POST_CHAT_SEND_HTTP=%{http_code}\n" -X POST http://127.0.0.1:8093/chat/send -d "chat_id=proof-chat&message=hello" -H "Content-Type: application/x-www-form-urlencoded"
+curl -s -o /dev/null -w "POST_UPLOAD_HTTP=%{http_code}\n" -F "file=@tests/golden/fixtures/upload_note.txt;type=text/plain" http://127.0.0.1:8093/upload
+```
+Expected:
+- `GET_CHAT_HTTP=200`
+- `POST_CHAT_SEND_HTTP=303`
+- `POST_UPLOAD_HTTP=200`
+- DB rows exist for `interaction_events` (`chat_id=proof-chat`), linked `learning_events` after feedback, and uploaded artefact + embeddings.
 
 Lock behavior note:
 - DB-mutating checks use an atomic lock directory (`/tmp/hatori_db.lockdir`).

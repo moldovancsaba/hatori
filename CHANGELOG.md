@@ -2,6 +2,18 @@
 
 All notable changes to this project are tracked here.
 
+## [0.3.0] - 2026-02-26
+
+### Added
+- Chat UI route (`/chat`) with conversation timeline, message send form, and assistant response logging.
+- Assistant feedback controls (`👍` / `👎`) writing attributable `learning_events` linked to assistant `interaction_events.id`.
+- Upload UI route (`/upload`) storing files under `artefacts/uploads/`, recording artefact metadata/checksum, and ingesting parseable files into chunk/vector storage.
+- Search UI route (`/search`) showing snippet + artefact provenance fields (artefact id, path, checksum).
+
+### Changed
+- Golden suite expanded to 50 cases, including chat/send metadata checks, feedback linkage checks, and upload ingestion/search coverage.
+- UI dependency set updated to include `httpx` for UI client test coverage in CI.
+
 ## [0.2.0] - 2026-02-26
 
 ### Added
