@@ -16,9 +16,18 @@ from hatori.prompts import RUNTIME_SYSTEM_PATH
 from hatori.prompts import TASK_TEMPLATE_PATH
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
+HAS_UI_TEST_DEPS = True
+UI_IMPORT_ERROR = ""
+try:
+    from fastapi.testclient import TestClient
+    from ui.app import app as ui_app
+except Exception as exc:
+    HAS_UI_TEST_DEPS = False
+    UI_IMPORT_ERROR = str(exc)
 
 FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "offline_playbook.txt"
 SEMANTIC_FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "semantic_garage.txt"
+UPLOAD_FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "upload_note.txt"
 
 
 def run(cmd: list[str], expect_ok: bool = True, env: dict | None = None) -> subprocess.CompletedProcess:
@@ -80,6 +89,16 @@ def get_artefact_id_for_uri(uri: str) -> str:
 
 def ingest_fixture(path: Path) -> dict:
     return run_cli_json(["ingest", str(path), "--json"])
+
+
+class SkipTest(Exception):
+    pass
+
+
+def ui_client():
+    if not HAS_UI_TEST_DEPS:
+        raise SkipTest(f"UI test dependencies unavailable: {UI_IMPORT_ERROR}")
+    return TestClient(ui_app)
 
 
 def test_01_ask_json_shape() -> None:
@@ -425,6 +444,140 @@ def test_42_model_healthcheck_none_ok() -> None:
     assert_true(out["ok"] is True, "consistency-check should pass with null model default")
 
 
+def test_43_chat_get_returns_200() -> None:
+    client = ui_client()
+    resp = client.get("/chat")
+    assert_true(resp.status_code == 200, "GET /chat should return 200")
+    assert_true("Chat" in resp.text, "/chat page should render chat content")
+
+
+def test_44_chat_send_creates_user_and_assistant_rows() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-44"
+    before = int(
+        db_scalar(
+            "SELECT count(*) FROM interaction_events "
+            f"WHERE COALESCE(metadata->>'chat_id','')='{chat_id}';"
+        )
+    )
+    resp = client.post("/chat/send", data={"chat_id": chat_id, "message": "hello from chat 44"})
+    assert_true(resp.status_code in {200, 303}, "POST /chat/send should succeed")
+    after = int(
+        db_scalar(
+            "SELECT count(*) FROM interaction_events "
+            f"WHERE COALESCE(metadata->>'chat_id','')='{chat_id}';"
+        )
+    )
+    assert_true(after == before + 2, "chat send should create user+assistant interaction rows")
+
+
+def test_45_chat_send_metadata_linking() -> None:
+    chat_id = "golden-chat-45"
+    run_cli_json(["ask", "seed baseline for 45", "--json"])
+    client = ui_client()
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "link check"})
+    user_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='user' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assistant_related = db_scalar(
+        "SELECT metadata->>'related_user_interaction_id' FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assert_true(user_id != "" and assistant_related == user_id, "assistant message metadata should link to user interaction")
+
+
+def test_46_feedback_up_creates_positive_learning() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-46"
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "feedback up"})
+    assistant_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+    resp = client.post(
+        "/chat/feedback",
+        data={"chat_id": chat_id, "interaction_id": assistant_id, "vote": "up", "category": "", "comment": ""},
+    )
+    assert_true(resp.status_code in {200, 303}, "up feedback should succeed")
+    after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+    assert_true(after == before + 1, "up feedback should create PositiveFeedback row")
+    linked = db_scalar(
+        "SELECT count(*) FROM learning_events "
+        f"WHERE kind='PositiveFeedback' AND related_interaction_id='{assistant_id}';"
+    )
+    assert_true(int(linked) >= 1, "PositiveFeedback should link to assistant interaction id")
+
+
+def test_47_feedback_down_requires_context() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-47"
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "feedback down validation"})
+    assistant_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    resp = client.post(
+        "/chat/feedback",
+        data={"chat_id": chat_id, "interaction_id": assistant_id, "vote": "down", "category": "", "comment": ""},
+    )
+    assert_true(resp.status_code == 400, "down feedback without category/comment should fail")
+
+
+def test_48_feedback_down_creates_negative_learning() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-48"
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "feedback down create"})
+    assistant_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    resp = client.post(
+        "/chat/feedback",
+        data={
+            "chat_id": chat_id,
+            "interaction_id": assistant_id,
+            "vote": "down",
+            "category": "accuracy",
+            "comment": "wrong response",
+        },
+    )
+    assert_true(resp.status_code in {200, 303}, "down feedback with category/comment should succeed")
+    after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    assert_true(after == before + 1, "down feedback should create NegativeFeedback row")
+
+
+def test_49_upload_txt_creates_artefact_and_embeddings() -> None:
+    client = ui_client()
+    before_art = int(db_scalar("SELECT count(*) FROM artefacts;"))
+    before_emb = int(db_scalar("SELECT count(*) FROM embeddings;"))
+    with UPLOAD_FIXTURE.open("rb") as fh:
+        resp = client.post("/upload", files={"file": (UPLOAD_FIXTURE.name, fh, "text/plain")})
+    assert_true(resp.status_code == 200, "POST /upload should return success page")
+    after_art = int(db_scalar("SELECT count(*) FROM artefacts;"))
+    after_emb = int(db_scalar("SELECT count(*) FROM embeddings;"))
+    assert_true(after_art == before_art + 1, "upload should create one artefact row")
+    assert_true(after_emb > before_emb, "upload .txt should create embedding chunks")
+
+
+def test_50_upload_content_searchable_in_ui() -> None:
+    if not HAS_UI_TEST_DEPS:
+        raise SkipTest(f"UI test dependencies unavailable: {UI_IMPORT_ERROR}")
+    out = run_cli_json(["search", "UploadFixtureToken-0401", "--json", "--limit", "5"])
+    assert_true(len(out.get("results", [])) >= 1, "uploaded txt token should be searchable")
+    client = ui_client()
+    resp = client.get("/search", params={"query": "UploadFixtureToken-0401", "limit": "5"})
+    assert_true(resp.status_code == 200, "GET /search should return 200")
+    assert_true("artefact_id=" in resp.text, "/search UI should show artefact provenance")
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -469,6 +622,14 @@ def collect_tests() -> list:
         test_40_prompt_builder_single_path_for_template,
         test_41_consistency_check_reports_pks_summary,
         test_42_model_healthcheck_none_ok,
+        test_43_chat_get_returns_200,
+        test_44_chat_send_creates_user_and_assistant_rows,
+        test_45_chat_send_metadata_linking,
+        test_46_feedback_up_creates_positive_learning,
+        test_47_feedback_down_requires_context,
+        test_48_feedback_down_creates_negative_learning,
+        test_49_upload_txt_creates_artefact_and_embeddings,
+        test_50_upload_content_searchable_in_ui,
     ]
 
 
@@ -484,10 +645,14 @@ def main() -> None:
         tests = tests[: args.subset]
 
     failures: list[str] = []
+    skipped = 0
     for idx, test_fn in enumerate(tests, start=1):
         try:
             test_fn()
             print(f"PASS {idx:02d} {test_fn.__name__}")
+        except SkipTest as exc:
+            skipped += 1
+            print(f"SKIP {idx:02d} {test_fn.__name__}: {exc}")
         except Exception as exc:
             failures.append(f"FAIL {idx:02d} {test_fn.__name__}: {exc}")
 
@@ -495,6 +660,8 @@ def main() -> None:
         print("\n".join(failures))
         raise SystemExit(1)
 
+    if skipped:
+        print(f"INFO: skipped tests ({skipped} cases)")
     print(f"PASS: golden tests ({len(tests)} cases)")
 
 

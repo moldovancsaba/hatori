@@ -40,6 +40,22 @@ Build a long-lived personal agent ("Hatori") that:
 - `HATORI_MODEL=none python -m hatori.cli ask "Summarize local checklist risks" --json`
 - `python -m hatori.cli consistency-check --subset 8`
 
+## POC loop (Sprint 04 chat + upload)
+- Start UI: `PORT=8093 make run-ui-hatori`
+- Open local routes:
+  - `http://127.0.0.1:8093/chat`
+  - `http://127.0.0.1:8093/upload`
+  - `http://127.0.0.1:8093/search`
+- Chat flow:
+  - send message in `/chat`
+  - assistant reply is logged in `interaction_events` with `related_user_interaction_id`
+  - apply `👍` / `👎` feedback on assistant messages (writes `learning_events` linked to assistant interaction ID)
+- Upload flow:
+  - upload `.txt`/`.md` in `/upload`
+  - artefact is saved under `artefacts/uploads/`
+  - chunk + embedding rows are created for parseable files
+  - uploaded tokens become searchable offline
+
 ## Offline ingest + search
 - Ingest local files into `artefacts` + chunked `embeddings`:
   - `python -m hatori.cli ingest tests/golden/fixtures/offline_playbook.txt --json`

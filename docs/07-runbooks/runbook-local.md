@@ -17,7 +17,7 @@ make test
 This runs:
 - DB lock contention guard (`DB busy; retry` on concurrent mutation attempts)
 - schema + seed self-checks
-- 42 golden tests for offline runtime behavior (including semantic search, model adapter, and governance gates)
+- 50 golden tests for offline runtime behavior (including chat + upload UI flows)
 
 Concurrency rule:
 - Keep DB-mutating commands sequential (`make reset`, `make test`, `./tools/scripts/planning_check.sh`).
@@ -72,6 +72,22 @@ python -m hatori.cli search "query text"
 python -m hatori.cli search "query text" --limit 10 --json
 python -m hatori.cli consistency-check --subset 8
 ```
+
+### UI chat + upload flow
+
+```bash
+PORT=8093 make run-ui-hatori
+```
+
+Open:
+- `http://127.0.0.1:8093/chat`
+- `http://127.0.0.1:8093/upload`
+- `http://127.0.0.1:8093/search`
+
+Expected behavior:
+- `/chat/send` creates user + assistant `interaction_events` scoped by `metadata.chat_id`.
+- Chat feedback buttons create `learning_events` linked via `related_interaction_id` (assistant interaction ID).
+- `/upload` stores files under `artefacts/uploads/`; `.txt`/`.md` also create chunk + vector rows in `embeddings`.
 
 ## Notes
 
