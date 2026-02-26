@@ -35,6 +35,10 @@ Build a long-lived personal agent ("Hatori") that:
 - Backlog: docs/11-roadmap/backlog.md
 - Sprint 01: docs/11-roadmap/sprint-01.md
 
+## Release
+- Current handoff-ready release tag: `v0.1.0`
+- Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
+
 ## Prompt Pack
 - Builder system prompt: docs/09-prompts/builder-system.md
 - Builder task template: docs/09-prompts/builder-task-template.md

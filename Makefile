@@ -12,6 +12,7 @@ reset:
 
 test:
 	./tools/scripts/self_test.sh
+	./tools/scripts/dod_gate.sh
 	. .venv/bin/activate && python tests/golden/run_golden.py
 
 .PHONY: run-ui
@@ -21,3 +22,11 @@ run-ui:
 .PHONY: up
 up:
 	@docker ps -a --format "{{.Names}}" | grep -qx hatori-pg && docker start hatori-pg || docker run -d --name hatori-pg -e POSTGRES_PASSWORD=hatori -e POSTGRES_USER=hatori -e POSTGRES_DB=hatori -p 5432:5432 pgvector/pgvector:pg16
+
+.PHONY: up-ci
+up-ci:
+	@docker ps -a --format "{{.Names}}" | grep -qx hatori-pg && docker start hatori-pg || docker run -d --name hatori-pg -e POSTGRES_PASSWORD=hatori -e POSTGRES_USER=hatori -e POSTGRES_DB=hatori pgvector/pgvector:pg16
+
+.PHONY: down-ci
+down-ci:
+	@docker rm -f hatori-pg >/dev/null 2>&1 || true

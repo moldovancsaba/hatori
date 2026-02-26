@@ -44,6 +44,43 @@ Expected end state:
 - `UI app present: True`
 - `OK: planning check complete`
 
+## Verification Evidence Pack (Delivery Hygiene Rule)
+
+Run in order:
+
+```bash
+cd /Users/moldovancsaba/Projects/reply-hatori
+git pull --ff-only
+git status -sb
+```
+Expected:
+- branch up to date with `origin/main`
+- no unexpected merge conflicts
+
+```bash
+make up
+./tools/scripts/planning_check.sh
+```
+Expected final lines:
+- `PASS: self_test`
+- `PASS: dod_gate`
+- `PASS: golden tests (10 cases)`
+- `UI app present: True`
+- `OK: planning check complete`
+
+```bash
+./tools/scripts/hatori pks show 0c942328-f2cb-4293-8a7e-9c0574d51301
+```
+Expected:
+- row contains `|H|Approved|Delivery Hygiene Rule|`
+
+```bash
+./tools/scripts/db_psql.sh -c "select occurred_at, actor, action, target_type, target_id, details from audit_events where target_id='0c942328-f2cb-4293-8a7e-9c0574d51301' order by occurred_at desc limit 5;"
+```
+Expected:
+- at least one row with `target_type = pks_record`
+- `target_id = 0c942328-f2cb-4293-8a7e-9c0574d51301`
+
 ## Run UI (local dashboard)
 Prereq: venv created and deps installed (see `ui/requirements.txt`).
 ```bash
