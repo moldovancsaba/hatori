@@ -1,0 +1,3 @@
+UploadFixtureToken-0401
+This is a local upload fixture for Sprint 04 chat/upload verification.
+It should become an artefact and generate embedding chunks for offline search.
