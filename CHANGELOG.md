@@ -20,6 +20,10 @@ All notable changes to this project are tracked here.
 - Mechanical DoD gate script (`tools/scripts/dod_gate.sh`) wired into `make test`.
 - Seeded Delivery Hygiene Rule in PKS + seeded audit evidence on reset.
 
+### Fixed
+- CI compatibility for `make test`: golden tests no longer require `.venv` activation and run via `python3`.
+- CI startup race: `make up-ci` now waits for Postgres readiness before reset/test.
+
 ### Governance And Rules
 - Added mandatory delivery hygiene rule to charter/prompts/DoD:
   - update docs
