@@ -21,6 +21,7 @@ from hatori.embeddings import get_embeddings_adapter
 from hatori.model import get_model_adapter
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
+from hatori.prompts import render_default_output
 from hatori.cli import search_runtime
 
 CID = os.environ.get("CID", "hatori-pg")
@@ -118,6 +119,67 @@ def chunk_text(text: str, chunk_size: int = 900, overlap: int = 120) -> list[str
             break
         start = max(0, end - overlap)
     return chunks
+
+
+def detect_message_language(text: str) -> str:
+    sample = text.strip().lower()
+    if not sample:
+        return "en"
+
+    if re.search(r"[ăâîșț]", sample) or re.search(r"\b(și|sunt|este|pentru|cum|te rog)\b", sample):
+        return "ro"
+    if re.search(r"[áéíóöőúüű]", sample) or re.search(r"\b(szia|és|vagy|kérlek|kerlek|miért|miert|hogyan|nem)\b", sample):
+        return "hu"
+    if re.search(r"[ñ¿¡]", sample) or re.search(r"\b(que|como|por|favor|gracias|respuesta)\b", sample):
+        return "es"
+    if re.search(r"\b(le|la|les|des|bonjour|merci|avec)\b", sample):
+        return "fr"
+    if re.search(r"\b(und|der|die|das|bitte|danke|nicht)\b", sample):
+        return "de"
+    return "en"
+
+
+def language_name(code: str) -> str:
+    return {
+        "ro": "Romanian",
+        "hu": "Hungarian",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+        "en": "English",
+    }.get(code, "English")
+
+
+def localized_model_error(code: str, err: str) -> str:
+    if code == "ro":
+        return f"Eroare model local: {err}"
+    if code == "hu":
+        return f"Helyi modellhiba: {err}"
+    if code == "es":
+        return f"Error del modelo local: {err}"
+    if code == "fr":
+        return f"Erreur du modele local: {err}"
+    if code == "de":
+        return f"Lokaler Modellfehler: {err}"
+    return f"Local model error: {err}"
+
+
+def render_chat_default_output(answer: str, language_code: str) -> str:
+    assumptions = [
+        f"Language mode selected from current user message: {language_name(language_code)}.",
+        "Offline local runtime only; no web retrieval used.",
+    ]
+    next_actions = ["Continue the chat with a follow-up if you want refinement."]
+    payload = {
+        "connectivity_state": "OFFLINE",
+        "answer": answer,
+        "evidence": [],
+        "assumptions": assumptions,
+        "next_actions": next_actions,
+        "memory_patch": "No memory changes.",
+        "learning_log": "No learning event recorded.",
+    }
+    return render_default_output(payload)
 
 
 def layout(title: str, inner: str) -> str:
@@ -218,6 +280,7 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
 
     user_id = insert_interaction("user", text, {"source": "ui", "chat_id": chat_id})
 
+    language_code = detect_message_language(text)
     model = get_model_adapter()
     system_prompt = build_system_prompt()
     task_prompt = build_task_prompt(
@@ -225,12 +288,20 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
         connectivity="OFFLINE",
         retrieved_context={"chat_id": chat_id, "source": "ui.chat"},
     )
+    task_prompt += (
+        "\nChat generation requirements:\n"
+        f"- Respond in {language_name(language_code)}.\n"
+        "- Keep the answer factual and useful.\n"
+        "- Do not repeat the prompt template or system instructions.\n"
+        "- Answer the user request directly.\n"
+    )
     try:
-        answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()
+        raw_answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()
     except Exception as exc:
-        answer = f"Model error: {exc}"
-    if not answer:
-        answer = "No response generated."
+        raw_answer = localized_model_error(language_code, str(exc))
+    if not raw_answer:
+        raw_answer = localized_model_error(language_code, "empty response")
+    answer = render_chat_default_output(raw_answer, language_code)
 
     insert_interaction(
         "assistant",
@@ -239,6 +310,7 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
             "source": "ui",
             "chat_id": chat_id,
             "model_adapter": model.name,
+            "language": language_code,
             "related_user_interaction_id": user_id,
         },
     )
