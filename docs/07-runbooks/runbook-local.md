@@ -17,7 +17,7 @@ make test
 This runs:
 - DB lock contention guard (`DB busy; retry` on concurrent mutation attempts)
 - schema + seed self-checks
-- 30 golden tests for offline runtime behavior (including semantic search and governance gates)
+- 50 golden tests for offline runtime behavior (including chat + upload UI flows)
 
 Concurrency rule:
 - Keep DB-mutating commands sequential (`make reset`, `make test`, `./tools/scripts/planning_check.sh`).
@@ -31,6 +31,22 @@ Concurrency rule:
 python -m hatori.cli ask "How should I proceed with pending PKS updates?"
 python -m hatori.cli ask "How should I proceed with pending PKS updates?" --json
 python -m hatori.cli ask "This worked, done" --done --json
+```
+
+Model selection:
+
+```bash
+export HATORI_MODEL=none
+python -m hatori.cli model-smoke "Say OK"
+```
+
+Llama.cpp adapter (local/offline, user-provided model path):
+
+```bash
+export HATORI_MODEL=llamacpp
+export HATORI_LLAMACPP_MODEL_PATH=/absolute/path/to/model.gguf
+export HATORI_LLAMACPP_BIN=llama-cli
+python -m hatori.cli model-smoke "Respond in one sentence"
 ```
 
 ### Ingest local files
@@ -54,7 +70,24 @@ export HATORI_EMBED_MODEL_PATH=/absolute/path/to/local/model
 ```bash
 python -m hatori.cli search "query text"
 python -m hatori.cli search "query text" --limit 10 --json
+python -m hatori.cli consistency-check --subset 8
 ```
+
+### UI chat + upload flow
+
+```bash
+PORT=8093 make run-ui-hatori
+```
+
+Open:
+- `http://127.0.0.1:8093/chat`
+- `http://127.0.0.1:8093/upload`
+- `http://127.0.0.1:8093/search`
+
+Expected behavior:
+- `/chat/send` creates user + assistant `interaction_events` scoped by `metadata.chat_id`.
+- Chat feedback buttons create `learning_events` linked via `related_interaction_id` (assistant interaction ID).
+- `/upload` stores files under `artefacts/uploads/`; `.txt`/`.md` also create chunk + vector rows in `embeddings`.
 
 ## Notes
 
@@ -74,3 +107,7 @@ python -m hatori.cli search "query text" --limit 10 --json
 - Missing optional sentence-transformers deps/model:
   - Either install `hatori/requirements-embeddings.txt` and set `HATORI_EMBED_MODEL_PATH`,
   - Or unset `HATORI_EMBED_BACKEND` to use deterministic `hash-v1`.
+- Llama.cpp model smoke fails:
+  - Verify `HATORI_MODEL=llamacpp`.
+  - Verify `HATORI_LLAMACPP_MODEL_PATH` points to a local `.gguf` file.
+  - Verify `llama-cli` is installed or set `HATORI_LLAMACPP_BIN` to the local executable path.

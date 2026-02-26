@@ -75,3 +75,18 @@ This repo implements **Hatori**, a local, offline-first, open-source personal ag
 
 **Exit criteria**
 - backup and restore verified end-to-end
+
+### Phase 6 — Interactive POC loop (Sprint 04)
+**Objective:** deliver a usable feedback-driven chat and upload flow in the local UI.
+
+**Deliverables**
+- Chat UI route (`/chat`) with conversation timeline and send flow.
+- Assistant-message feedback actions (`👍`/`👎`) writing attributable learning signals to module J.
+- Upload UI route (`/upload`) for local artefacts, checksums, and ingestion into chunk/vector storage.
+- UI search surface for uploaded artefacts with provenance (artefact ID + path/checksum).
+
+**Exit criteria**
+- Chat send creates user + assistant interaction events with shared `chat_id`.
+- Feedback creates learning events linked to assistant interaction IDs.
+- Upload of `.txt` creates artefact + embeddings rows and becomes retrievable offline.
+- No silent promotion to PKS A–H from UI feedback.

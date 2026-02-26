@@ -11,6 +11,10 @@ import uuid
 
 from hatori.embeddings import EmbeddingsAdapter
 from hatori.embeddings import get_embeddings_adapter
+from hatori.model import get_model_adapter
+from hatori.prompts import build_system_prompt
+from hatori.prompts import build_task_prompt
+from hatori.prompts import render_default_output
 
 CID = os.environ.get("CID", "hatori-pg")
 UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -46,6 +50,17 @@ def embedding_adapter() -> EmbeddingsAdapter:
 
 def vector_sql_literal(vector: list[float]) -> str:
     return "[" + ",".join(f"{x:.8f}" for x in vector) + "]"
+
+
+def connectivity_state() -> str:
+    explicit = os.environ.get("HATORI_CONNECTIVITY_STATE", "").strip().upper()
+    if explicit in {"OFFLINE", "ONLINE-UNVERIFIED", "ONLINE-VERIFIED"}:
+        return explicit
+    if os.environ.get("HATORI_ENABLE_ONLINE_VERIFIED", "").strip() == "1":
+        return "ONLINE-VERIFIED"
+    if os.environ.get("HATORI_ENABLE_ONLINE", "").strip() == "1":
+        return "ONLINE-UNVERIFIED"
+    return "OFFLINE"
 
 
 def ping() -> None:
@@ -302,33 +317,8 @@ def merge_rank_results(candidates: list[dict], limit: int) -> list[dict]:
     return merged[:limit]
 
 
-def render_ask_text(payload: dict) -> str:
-    evidence_lines: list[str]
-    if payload["evidence"]:
-        evidence_lines = [
-            f"- [{e['citation']}] {e['title']} | score={e['score']} | excerpt={e['excerpt']}"
-            for e in payload["evidence"]
-        ]
-    else:
-        evidence_lines = ["- No local evidence found."]
-
-    actions = "\n".join(f"- {x}" for x in payload["next_actions"])
-    assumptions = "\n".join(f"- {x}" for x in payload["assumptions"])
-    evidence = "\n".join(evidence_lines)
-
-    return (
-        f"1) Connectivity State: {payload['connectivity_state']}\n"
-        f"2) Answer / Recommendation\n{payload['answer']}\n\n"
-        f"3) Evidence & Sources\n{evidence}\n\n"
-        f"4) Assumptions & Uncertainties\n{assumptions}\n\n"
-        f"5) Next Actions\n{actions}\n\n"
-        f"6) Memory Patch\n{payload['memory_patch']}\n\n"
-        f"7) Learning Log (J)\n{payload['learning_log']}"
-    )
-
-
 def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = False) -> dict:
-    connectivity_state = "OFFLINE"
+    current_connectivity = connectivity_state()
     classification = classify_request(question)
 
     pks_hits = retrieve_pks(question, allow_pending=allow_pending, limit=6)
@@ -373,7 +363,7 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
     user_event_id = insert_interaction(
         role="user",
         content=question,
-        meta={"source": "cli.ask", "classification": classification, "connectivity": connectivity_state},
+        meta={"source": "cli.ask", "classification": classification, "connectivity": current_connectivity},
     )
 
     learning_log = "No learning event recorded."
@@ -388,7 +378,7 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
         learning_log = f"Recorded ImplicitPositive (Low) as learning event {learning_event_id}."
 
     payload = {
-        "connectivity_state": connectivity_state,
+        "connectivity_state": current_connectivity,
         "classification": classification,
         "answer": answer,
         "evidence": evidence,
@@ -399,18 +389,39 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
         "interaction_user_id": user_event_id,
         "interaction_agent_id": None,
         "learning_event_id": learning_event_id,
+        "model_adapter": os.environ.get("HATORI_MODEL", "none").strip().lower() or "none",
+        "model_draft": "",
     }
 
-    rendered = render_ask_text(payload)
+    model = get_model_adapter()
+    system_prompt = build_system_prompt()
+    task_prompt = build_task_prompt(
+        user_text=question,
+        connectivity=current_connectivity,
+        retrieved_context={
+            "classification": classification,
+            "evidence": evidence[:6],
+            "assumptions": assumptions,
+        },
+    )
+    try:
+        model_draft = model.generate(system_prompt=system_prompt, task_prompt=task_prompt)
+    except Exception as exc:
+        model_draft = f"Model unavailable: {exc}"
+    payload["model_adapter"] = model.name
+    payload["model_draft"] = model_draft
+
+    rendered = render_default_output(payload)
     agent_event_id = insert_interaction(
         role="agent",
         content=rendered,
         meta={
             "source": "cli.ask",
             "classification": classification,
-            "connectivity": connectivity_state,
+            "connectivity": current_connectivity,
             "evidence_count": len(evidence),
             "citations": [e["citation"] for e in evidence],
+            "model": model.name,
         },
     )
     payload["interaction_agent_id"] = agent_event_id
@@ -547,6 +558,100 @@ def search_runtime(query: str, limit: int, allow_pending: bool) -> dict:
     }
 
 
+def _contains_pending_guards() -> bool:
+    source = Path(__file__).read_text(encoding="utf-8")
+    return 'statuses = ["Approved"]' in source and "if allow_pending:" in source
+
+
+def consistency_check(subset: int = 8) -> dict:
+    state = connectivity_state()
+
+    profile_rows = psql_json(
+        "SELECT id, module, status, title FROM pks_records "
+        "WHERE module IN ('A','C') AND status IN ('Approved','Pending') "
+        "ORDER BY updated_at DESC LIMIT 10"
+    )
+    project_rows = psql_json(
+        "SELECT id, module, status, title FROM pks_records "
+        "WHERE module IN ('D','E') AND status IN ('Approved','Pending') "
+        "ORDER BY updated_at DESC LIMIT 10"
+    )
+    contested_rows = psql_json(
+        "SELECT id, module, status, title FROM pks_records "
+        "WHERE status='Contested' ORDER BY updated_at DESC LIMIT 10"
+    )
+
+    auto_write_violations = psql_json(
+        "SELECT id, occurred_at, actor, action, target_type, target_id, details "
+        "FROM audit_events "
+        "WHERE actor='agent' "
+        "AND target_type='pks_record' "
+        "AND COALESCE(details->>'auto_capture','false')='true' "
+        "AND COALESCE(details->>'explicit_instruction','false')!='true' "
+        "ORDER BY occurred_at DESC LIMIT 20"
+    )
+    pending_rule_present = _contains_pending_guards()
+
+    subset = max(1, int(subset))
+    golden_cmd = [sys.executable, "tests/golden/run_golden.py", "--subset", str(subset)]
+    golden_proc = subprocess.run(golden_cmd, capture_output=True, text=True)
+    golden_pass = golden_proc.returncode == 0
+
+    checks = [
+        {
+            "name": "no_auto_writes_to_A_H_without_explicit_instruction",
+            "ok": len(auto_write_violations) == 0,
+            "violations": auto_write_violations,
+        },
+        {
+            "name": "pending_exclusion_rules_present",
+            "ok": pending_rule_present,
+            "details": "retrieve_pks keeps Approved-only unless --allow-pending",
+        },
+        {
+            "name": "golden_subset",
+            "ok": golden_pass,
+            "details": {"subset": subset, "cmd": " ".join(golden_cmd)},
+            "stdout_tail": "\n".join((golden_proc.stdout or "").strip().splitlines()[-8:]),
+            "stderr_tail": "\n".join((golden_proc.stderr or "").strip().splitlines()[-8:]),
+        },
+    ]
+    ok = all(c["ok"] for c in checks)
+    return {
+        "ok": ok,
+        "connectivity_state": state,
+        "summary": {
+            "profile_preferences_count": len(profile_rows),
+            "active_projects_tasks_count": len(project_rows),
+            "contested_count": len(contested_rows),
+            "profile_preferences": profile_rows,
+            "active_projects_tasks": project_rows,
+            "contested_records": contested_rows,
+        },
+        "checks": checks,
+    }
+
+
+def print_consistency_check(payload: dict) -> None:
+    status = "PASS" if payload["ok"] else "FAIL"
+    summary = payload["summary"]
+    print(f"Consistency Check: {status}")
+    print(f"Connectivity State: {payload['connectivity_state']}")
+    print(
+        f"PKS Summary: profile/preferences={summary['profile_preferences_count']} "
+        f"projects/tasks={summary['active_projects_tasks_count']} contested={summary['contested_count']}"
+    )
+    for check in payload["checks"]:
+        marker = "OK" if check["ok"] else "FAIL"
+        print(f"- {marker}: {check['name']}")
+    golden = next((c for c in payload["checks"] if c["name"] == "golden_subset"), None)
+    if golden:
+        tail = golden.get("stdout_tail", "")
+        if tail:
+            print("Golden subset tail:")
+            print(tail)
+
+
 def parse_bool_flag(args: list[str], flag: str) -> tuple[bool, list[str]]:
     found = flag in args
     if not found:
@@ -567,7 +672,7 @@ def parse_int_option(args: list[str], name: str, default: int) -> tuple[int, lis
 
 def main(argv: list[str]) -> None:
     if len(argv) < 2:
-        raise SystemExit("Usage: hatori <ping|log|feedback|pks|ask|ingest|search> ...")
+        raise SystemExit("Usage: hatori <ping|log|feedback|pks|ask|ingest|search|consistency-check|model-smoke> ...")
 
     cmd = argv[1]
 
@@ -673,7 +778,7 @@ def main(argv: list[str]) -> None:
         if json_mode:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
-            print(render_ask_text(payload))
+            print(render_default_output(payload))
         return
 
     if cmd == "ingest":
@@ -713,6 +818,38 @@ def main(argv: list[str]) -> None:
                     print(f"  excerpt={row['excerpt']}")
                     if row.get("artefact_id"):
                         print(f"  artefact_id={row['artefact_id']} provenance={row.get('provenance', 'unknown')}")
+        return
+
+    if cmd == "consistency-check":
+        args = argv[2:]
+        json_mode, args = parse_bool_flag(args, "--json")
+        subset, args = parse_int_option(args, "--subset", 8)
+        if args:
+            raise SystemExit("Usage: hatori consistency-check [--subset N] [--json]")
+        payload = consistency_check(subset=subset)
+        if json_mode:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print_consistency_check(payload)
+        if not payload["ok"]:
+            raise SystemExit(1)
+        return
+
+    if cmd == "model-smoke":
+        args = argv[2:]
+        prompt = " ".join(args).strip() or "Say OK in one short line."
+        model = get_model_adapter()
+        system_prompt = build_system_prompt()
+        task_prompt = build_task_prompt(
+            user_text=prompt,
+            connectivity=connectivity_state(),
+            retrieved_context={"mode": "smoke"},
+        )
+        health = model.healthcheck()
+        if not health.get("ok", False):
+            raise SystemExit(f"Model healthcheck failed: {json.dumps(health, ensure_ascii=False)}")
+        out = model.generate(system_prompt=system_prompt, task_prompt=task_prompt)
+        print(out)
         return
 
     raise SystemExit("Unknown command: " + cmd)

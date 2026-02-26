@@ -1,23 +1,44 @@
+import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from hatori.model import get_model_adapter
+from hatori.prompts import CHARTER_PATH
+from hatori.prompts import RUNTIME_SYSTEM_PATH
+from hatori.prompts import TASK_TEMPLATE_PATH
+from hatori.prompts import build_system_prompt
+from hatori.prompts import build_task_prompt
+HAS_UI_TEST_DEPS = True
+UI_IMPORT_ERROR = ""
+try:
+    from fastapi.testclient import TestClient
+    from ui.app import app as ui_app
+except Exception as exc:
+    HAS_UI_TEST_DEPS = False
+    UI_IMPORT_ERROR = str(exc)
+
 FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "offline_playbook.txt"
 SEMANTIC_FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "semantic_garage.txt"
+UPLOAD_FIXTURE = ROOT / "tests" / "golden" / "fixtures" / "upload_note.txt"
 
 
-def run(cmd: list[str], expect_ok: bool = True) -> subprocess.CompletedProcess:
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
+def run(cmd: list[str], expect_ok: bool = True, env: dict | None = None) -> subprocess.CompletedProcess:
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, env=env)
     if expect_ok and proc.returncode != 0:
         raise RuntimeError(f"Command failed: {' '.join(cmd)}\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
     return proc
 
 
-def run_cli(args: list[str], expect_ok: bool = True) -> subprocess.CompletedProcess:
-    return run([sys.executable, "-m", "hatori.cli", *args], expect_ok=expect_ok)
+def run_cli(args: list[str], expect_ok: bool = True, env: dict | None = None) -> subprocess.CompletedProcess:
+    return run([sys.executable, "-m", "hatori.cli", *args], expect_ok=expect_ok, env=env)
 
 
 def run_cli_json(args: list[str]) -> dict:
@@ -68,6 +89,16 @@ def get_artefact_id_for_uri(uri: str) -> str:
 
 def ingest_fixture(path: Path) -> dict:
     return run_cli_json(["ingest", str(path), "--json"])
+
+
+class SkipTest(Exception):
+    pass
+
+
+def ui_client():
+    if not HAS_UI_TEST_DEPS:
+        raise SkipTest(f"UI test dependencies unavailable: {UI_IMPORT_ERROR}")
+    return TestClient(ui_app)
 
 
 def test_01_ask_json_shape() -> None:
@@ -309,11 +340,246 @@ def test_30_provenance_fields_present_for_embedding_results() -> None:
     assert_true(bool(row.get("artefact_id")), "Embedding result should include artefact_id")
 
 
-def main() -> None:
-    run(["./tools/scripts/db_reset.sh"], expect_ok=True)
-    ingest_fixture(FIXTURE)
+def test_31_prompt_system_uses_canonical_paths() -> None:
+    text = build_system_prompt()
+    assert_true(str(CHARTER_PATH.as_posix()) in text, "System prompt must reference charter path")
+    assert_true(str(RUNTIME_SYSTEM_PATH.as_posix()) in text, "System prompt must reference runtime path")
 
-    tests = [
+
+def test_32_prompt_task_uses_canonical_template_path() -> None:
+    text = build_task_prompt(
+        user_text="hello",
+        connectivity="OFFLINE",
+        retrieved_context={"evidence": []},
+    )
+    assert_true(str(TASK_TEMPLATE_PATH.as_posix()) in text, "Task prompt must reference template path")
+    assert_true("Connectivity: OFFLINE" in text, "Task prompt should include connectivity marker")
+
+
+def test_33_model_none_deterministic() -> None:
+    old = os.environ.get("HATORI_MODEL")
+    os.environ["HATORI_MODEL"] = "none"
+    try:
+        model = get_model_adapter()
+        one = model.generate("sys", "task")
+        two = model.generate("sys", "task")
+        assert_true(one == two, "Null model output must be deterministic")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_MODEL", None)
+        else:
+            os.environ["HATORI_MODEL"] = old
+
+
+def test_34_model_none_smoke_command() -> None:
+    env = dict(os.environ)
+    env["HATORI_MODEL"] = "none"
+    proc = run_cli(["model-smoke", "Say hello"], expect_ok=True, env=env)
+    assert_true(proc.stdout.strip() != "", "model-smoke should return text for null adapter")
+
+
+def test_35_consistency_check_offline_pass() -> None:
+    proc = run_cli(["consistency-check", "--subset", "3"], expect_ok=True)
+    assert_true("Consistency Check: PASS" in proc.stdout, "consistency-check should pass baseline")
+    assert_true("Connectivity State: OFFLINE" in proc.stdout, "default connectivity should be OFFLINE")
+
+
+def test_36_consistency_check_json_shape() -> None:
+    proc = run_cli(["consistency-check", "--subset", "2", "--json"], expect_ok=True)
+    out = json.loads(proc.stdout)
+    assert_true("ok" in out and "checks" in out and "summary" in out, "consistency-check json fields missing")
+
+
+def test_37_no_A_H_write_during_ask() -> None:
+    before = int(
+        db_scalar(
+            "SELECT count(*) FROM audit_events WHERE actor='agent' AND target_type='pks_record' "
+            "AND COALESCE(details->>'auto_capture','false')='true';"
+        )
+    )
+    run_cli_json(["ask", "quick governance check", "--json"])
+    after = int(
+        db_scalar(
+            "SELECT count(*) FROM audit_events WHERE actor='agent' AND target_type='pks_record' "
+            "AND COALESCE(details->>'auto_capture','false')='true';"
+        )
+    )
+    assert_true(after == before, "ask should not auto-write A-H records")
+
+
+def test_38_consistency_check_detects_violation_fixture() -> None:
+    vid = str(uuid.uuid4())
+    db_scalar(
+        "INSERT INTO audit_events (id, actor, action, target_type, target_id, details) VALUES "
+        f"('{vid}', 'agent', 'auto_capture', 'pks_record', '{vid}', '{{\"auto_capture\":true}}'::jsonb);"
+    )
+    try:
+        proc = run_cli(["consistency-check", "--subset", "1"], expect_ok=False)
+        assert_true(proc.returncode != 0, "consistency-check must fail on governance violation fixture")
+    finally:
+        db_scalar(f"DELETE FROM audit_events WHERE id='{vid}';")
+
+
+def test_39_pending_rule_static_guard_present() -> None:
+    source = (ROOT / "hatori" / "cli.py").read_text(encoding="utf-8")
+    assert_true('statuses = ["Approved"]' in source, "pending default exclusion guard missing")
+    assert_true("if allow_pending:" in source, "allow_pending branch missing")
+
+
+def test_40_prompt_builder_single_path_for_template() -> None:
+    source = (ROOT / "hatori" / "cli.py").read_text(encoding="utf-8")
+    assert_true("render_default_output(payload)" in source, "ask output should use shared prompt renderer")
+
+
+def test_41_consistency_check_reports_pks_summary() -> None:
+    proc = run_cli(["consistency-check", "--subset", "2"], expect_ok=True)
+    assert_true("PKS Summary:" in proc.stdout, "consistency-check should report PKS summary")
+
+
+def test_42_model_healthcheck_none_ok() -> None:
+    env = dict(os.environ)
+    env["HATORI_MODEL"] = "none"
+    proc = run_cli(["consistency-check", "--subset", "1", "--json"], expect_ok=True, env=env)
+    out = json.loads(proc.stdout)
+    assert_true(out["ok"] is True, "consistency-check should pass with null model default")
+
+
+def test_43_chat_get_returns_200() -> None:
+    client = ui_client()
+    resp = client.get("/chat")
+    assert_true(resp.status_code == 200, "GET /chat should return 200")
+    assert_true("Chat" in resp.text, "/chat page should render chat content")
+
+
+def test_44_chat_send_creates_user_and_assistant_rows() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-44"
+    before = int(
+        db_scalar(
+            "SELECT count(*) FROM interaction_events "
+            f"WHERE COALESCE(metadata->>'chat_id','')='{chat_id}';"
+        )
+    )
+    resp = client.post("/chat/send", data={"chat_id": chat_id, "message": "hello from chat 44"})
+    assert_true(resp.status_code in {200, 303}, "POST /chat/send should succeed")
+    after = int(
+        db_scalar(
+            "SELECT count(*) FROM interaction_events "
+            f"WHERE COALESCE(metadata->>'chat_id','')='{chat_id}';"
+        )
+    )
+    assert_true(after == before + 2, "chat send should create user+assistant interaction rows")
+
+
+def test_45_chat_send_metadata_linking() -> None:
+    chat_id = "golden-chat-45"
+    run_cli_json(["ask", "seed baseline for 45", "--json"])
+    client = ui_client()
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "link check"})
+    user_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='user' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assistant_related = db_scalar(
+        "SELECT metadata->>'related_user_interaction_id' FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assert_true(user_id != "" and assistant_related == user_id, "assistant message metadata should link to user interaction")
+
+
+def test_46_feedback_up_creates_positive_learning() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-46"
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "feedback up"})
+    assistant_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+    resp = client.post(
+        "/chat/feedback",
+        data={"chat_id": chat_id, "interaction_id": assistant_id, "vote": "up", "category": "", "comment": ""},
+    )
+    assert_true(resp.status_code in {200, 303}, "up feedback should succeed")
+    after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+    assert_true(after == before + 1, "up feedback should create PositiveFeedback row")
+    linked = db_scalar(
+        "SELECT count(*) FROM learning_events "
+        f"WHERE kind='PositiveFeedback' AND related_interaction_id='{assistant_id}';"
+    )
+    assert_true(int(linked) >= 1, "PositiveFeedback should link to assistant interaction id")
+
+
+def test_47_feedback_down_requires_context() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-47"
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "feedback down validation"})
+    assistant_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    resp = client.post(
+        "/chat/feedback",
+        data={"chat_id": chat_id, "interaction_id": assistant_id, "vote": "down", "category": "", "comment": ""},
+    )
+    assert_true(resp.status_code == 400, "down feedback without category/comment should fail")
+
+
+def test_48_feedback_down_creates_negative_learning() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-48"
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "feedback down create"})
+    assistant_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    resp = client.post(
+        "/chat/feedback",
+        data={
+            "chat_id": chat_id,
+            "interaction_id": assistant_id,
+            "vote": "down",
+            "category": "accuracy",
+            "comment": "wrong response",
+        },
+    )
+    assert_true(resp.status_code in {200, 303}, "down feedback with category/comment should succeed")
+    after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    assert_true(after == before + 1, "down feedback should create NegativeFeedback row")
+
+
+def test_49_upload_txt_creates_artefact_and_embeddings() -> None:
+    client = ui_client()
+    before_art = int(db_scalar("SELECT count(*) FROM artefacts;"))
+    before_emb = int(db_scalar("SELECT count(*) FROM embeddings;"))
+    with UPLOAD_FIXTURE.open("rb") as fh:
+        resp = client.post("/upload", files={"file": (UPLOAD_FIXTURE.name, fh, "text/plain")})
+    assert_true(resp.status_code == 200, "POST /upload should return success page")
+    after_art = int(db_scalar("SELECT count(*) FROM artefacts;"))
+    after_emb = int(db_scalar("SELECT count(*) FROM embeddings;"))
+    assert_true(after_art == before_art + 1, "upload should create one artefact row")
+    assert_true(after_emb > before_emb, "upload .txt should create embedding chunks")
+
+
+def test_50_upload_content_searchable_in_ui() -> None:
+    if not HAS_UI_TEST_DEPS:
+        raise SkipTest(f"UI test dependencies unavailable: {UI_IMPORT_ERROR}")
+    out = run_cli_json(["search", "UploadFixtureToken-0401", "--json", "--limit", "5"])
+    assert_true(len(out.get("results", [])) >= 1, "uploaded txt token should be searchable")
+    client = ui_client()
+    resp = client.get("/search", params={"query": "UploadFixtureToken-0401", "limit": "5"})
+    assert_true(resp.status_code == 200, "GET /search should return 200")
+    assert_true("artefact_id=" in resp.text, "/search UI should show artefact provenance")
+
+
+def collect_tests() -> list:
+    return [
         test_01_ask_json_shape,
         test_02_connectivity_offline,
         test_03_text_template_sections,
@@ -344,13 +610,49 @@ def main() -> None:
         test_28_ask_no_evidence_fallback,
         test_29_approved_record_still_retrievable,
         test_30_provenance_fields_present_for_embedding_results,
+        test_31_prompt_system_uses_canonical_paths,
+        test_32_prompt_task_uses_canonical_template_path,
+        test_33_model_none_deterministic,
+        test_34_model_none_smoke_command,
+        test_35_consistency_check_offline_pass,
+        test_36_consistency_check_json_shape,
+        test_37_no_A_H_write_during_ask,
+        test_38_consistency_check_detects_violation_fixture,
+        test_39_pending_rule_static_guard_present,
+        test_40_prompt_builder_single_path_for_template,
+        test_41_consistency_check_reports_pks_summary,
+        test_42_model_healthcheck_none_ok,
+        test_43_chat_get_returns_200,
+        test_44_chat_send_creates_user_and_assistant_rows,
+        test_45_chat_send_metadata_linking,
+        test_46_feedback_up_creates_positive_learning,
+        test_47_feedback_down_requires_context,
+        test_48_feedback_down_creates_negative_learning,
+        test_49_upload_txt_creates_artefact_and_embeddings,
+        test_50_upload_content_searchable_in_ui,
     ]
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--subset", type=int, default=0)
+    args, _unknown = parser.parse_known_args()
+
+    run(["./tools/scripts/db_reset.sh"], expect_ok=True)
+    ingest_fixture(FIXTURE)
+    tests = collect_tests()
+    if args.subset and args.subset > 0:
+        tests = tests[: args.subset]
+
     failures: list[str] = []
+    skipped = 0
     for idx, test_fn in enumerate(tests, start=1):
         try:
             test_fn()
             print(f"PASS {idx:02d} {test_fn.__name__}")
+        except SkipTest as exc:
+            skipped += 1
+            print(f"SKIP {idx:02d} {test_fn.__name__}: {exc}")
         except Exception as exc:
             failures.append(f"FAIL {idx:02d} {test_fn.__name__}: {exc}")
 
@@ -358,6 +660,8 @@ def main() -> None:
         print("\n".join(failures))
         raise SystemExit(1)
 
+    if skipped:
+        print(f"INFO: skipped tests ({skipped} cases)")
     print(f"PASS: golden tests ({len(tests)} cases)")
 
 

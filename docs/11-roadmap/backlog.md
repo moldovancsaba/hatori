@@ -82,3 +82,47 @@ This is the actionable backlog that turns the Charter into deliverable work.
 
 **Acceptance**
 - tests assert: no fabricated citations, offline gating, correct Memory Patch formatting, no inference→fact promotion
+
+## Epic F — Chat UI with feedback annotations (Sprint 04)
+
+### F1. Chat screen (`/chat`)
+**Story:** As Sultan, I want a local chat timeline where I can send messages and see Hatori replies.
+
+**Acceptance**
+- `GET /chat` renders user+assistant timeline for a `chat_id` (default `main`)
+- `POST /chat/send` writes user interaction event (`source=ui`, `chat_id`)
+- Assistant reply is generated via runtime/model adapter boundary and logged as assistant interaction with `related_user_interaction_id`
+
+### F2. Assistant feedback controls
+**Story:** As Sultan, I want 👍/👎 on assistant replies to become explicit learning signals.
+
+**Acceptance**
+- 👍 writes `learning_events(kind=PositiveFeedback, confidence=High, related_interaction_id=<assistant id>)`
+- 👎 writes `learning_events(kind=NegativeFeedback, confidence=High/Medium, related_interaction_id=<assistant id>)`
+- `details` include `vote`, `category`, `comment`, `ui_context`
+- No implicit “no feedback = positive” behavior in UI
+
+### F3. Gated promotion actions
+**Story:** As Sultan, I want optional explicit promotion of feedback into Pending preferences/rules.
+
+**Acceptance**
+- UI action can create Pending PKS entries in module C or H only on explicit click
+- Approval/deprecation remains in existing Pending governance flow
+
+## Epic G — Upload + ingestion UI (Sprint 04)
+
+### G1. Upload route (`/upload`)
+**Story:** As Sultan, I want to upload local files into the system brain.
+
+**Acceptance**
+- Upload saves under `artefacts/uploads/`
+- Artefact row records file path, checksum, size, and sensitivity metadata (default `Private`)
+- For parseable files (`.txt`, `.md`), ingestion creates chunks + vectors
+- For unsupported types (`.pdf`, `.docx` in MVP), artefact is stored with `unparsed` metadata
+
+### G2. Search over uploaded artefacts
+**Story:** As Sultan, I want uploaded files to appear in offline search with provenance.
+
+**Acceptance**
+- Search page shows snippet + artefact ID + path/checksum where available
+- Retrieval remains offline/local only
