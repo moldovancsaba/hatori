@@ -2,6 +2,17 @@
 
 All notable changes to this project are tracked here.
 
+## [0.5.0] - 2026-02-26
+
+### Added
+- Real local Ollama model adapter (`HATORI_MODEL=ollama`) in `hatori/model.py` using localhost endpoint `http://127.0.0.1:11434`.
+- Ollama model configuration via env (`HATORI_OLLAMA_MODEL`, default `llama3.2:3b`) and adapter selection test coverage.
+
+### Changed
+- Chat generation path now supports Ollama runtime while preserving governance logging and per-message language handling.
+- Launcher and runbook guidance aligned to Ollama-first local setup for fast offline operation after model pull.
+- UI golden test gate remains strict (no silent dependency skips), and full UI test coverage runs in DoD/CI.
+
 ## [0.3.0] - 2026-02-26
 
 ### Added

@@ -50,6 +50,10 @@ export HATORI_OLLAMA_MODEL=llama3.2:3b
 python -m hatori.cli model-smoke "Respond in one sentence"
 ```
 
+Launcher defaults:
+- `HATORI_MODEL=ollama`
+- `HATORI_OLLAMA_MODEL=llama3.2:3b`
+
 Llama.cpp adapter (local/offline, user-provided model path):
 
 ```bash
