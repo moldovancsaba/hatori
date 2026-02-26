@@ -68,6 +68,11 @@ Expected final lines:
 - `UI app present: True`
 - `OK: planning check complete`
 
+Lock behavior note:
+- DB-mutating checks use an atomic lock directory (`/tmp/hatori_db.lockdir`).
+- If a second DB-mutating command starts concurrently, it fails fast with `DB busy; retry`.
+- Official DoD commands are sequential (do not run `planning_check.sh` and `make test` at the same time).
+
 ```bash
 ./tools/scripts/hatori pks show 0c942328-f2cb-4293-8a7e-9c0574d51301
 ```

@@ -1,5 +1,9 @@
 #!/bin/bash
 set -euo pipefail
+
+. "$(dirname "$0")/db_lock.sh"
+db_lock_acquire
+
 CID="${CID:-hatori-pg}"
 RID="11111111-1111-1111-1111-111111111111"
 IID="22222222-2222-2222-2222-222222222222"

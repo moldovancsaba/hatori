@@ -1,5 +1,9 @@
 #!/bin/bash
 set -euo pipefail
+
+. "$(dirname "$0")/db_lock.sh"
+db_lock_acquire
+
 ./tools/scripts/db_status.sh >/dev/null
 echo "OK: db_status"
 

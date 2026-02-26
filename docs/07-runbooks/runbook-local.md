@@ -15,8 +15,13 @@ make test
 ```
 
 This runs:
+- DB lock contention guard (`DB busy; retry` on concurrent mutation attempts)
 - schema + seed self-checks
 - 10 golden tests for offline runtime behavior
+
+Concurrency rule:
+- Keep DB-mutating commands sequential (`make reset`, `make test`, `./tools/scripts/planning_check.sh`).
+- If a second command starts while another holds the DB lock, it fails fast with `DB busy; retry`.
 
 ## Daily runtime commands
 

@@ -2,6 +2,13 @@
 
 All notable changes to this project are tracked here.
 
+## [0.1.1] - 2026-02-26
+
+### Fixed
+- Added deterministic DB operation locking via atomic lock directory (`/tmp/hatori_db.lockdir`) to prevent flaky failures when DB-mutating commands run concurrently.
+- Guarded `db_reset.sh`, `db_seed.sh`, `self_test.sh`, and `planning_check.sh` with shared lock handling and fail-fast contention message (`DB busy; retry`).
+- Added `tools/scripts/db_lock_contention_test.sh` and wired it into `make test` to enforce lock behavior in local and CI runs.
+
 ## [0.1.0] - 2026-02-26
 
 ### Added
