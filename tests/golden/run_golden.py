@@ -372,6 +372,25 @@ def test_34_model_none_smoke_command() -> None:
     assert_true(proc.stdout.strip() != "", "model-smoke should return text for null adapter")
 
 
+def test_34b_model_ollama_adapter_selectable() -> None:
+    old_model = os.environ.get("HATORI_MODEL")
+    old_name = os.environ.get("HATORI_OLLAMA_MODEL")
+    os.environ["HATORI_MODEL"] = "ollama"
+    os.environ["HATORI_OLLAMA_MODEL"] = "llama3.2:3b"
+    try:
+        model = get_model_adapter()
+        assert_true(model.name == "ollama", "HATORI_MODEL=ollama should select OllamaAdapter")
+    finally:
+        if old_model is None:
+            os.environ.pop("HATORI_MODEL", None)
+        else:
+            os.environ["HATORI_MODEL"] = old_model
+        if old_name is None:
+            os.environ.pop("HATORI_OLLAMA_MODEL", None)
+        else:
+            os.environ["HATORI_OLLAMA_MODEL"] = old_name
+
+
 def test_35_consistency_check_offline_pass() -> None:
     proc = run_cli(["consistency-check", "--subset", "3"], expect_ok=True)
     assert_true("Consistency Check: PASS" in proc.stdout, "consistency-check should pass baseline")
@@ -644,6 +663,7 @@ def collect_tests() -> list:
         test_32_prompt_task_uses_canonical_template_path,
         test_33_model_none_deterministic,
         test_34_model_none_smoke_command,
+        test_34b_model_ollama_adapter_selectable,
         test_35_consistency_check_offline_pass,
         test_36_consistency_check_json_shape,
         test_37_no_A_H_write_during_ask,

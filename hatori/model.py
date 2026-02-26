@@ -4,6 +4,9 @@ from pathlib import Path
 import subprocess
 from typing import Protocol
 import shutil
+import json
+import urllib.request
+import urllib.error
 
 
 class ModelAdapter(Protocol):
@@ -24,7 +27,7 @@ class NullAdapter:
         return (
             "Offline deterministic response (NullAdapter). "
             f"Request fingerprint: {digest}. "
-            "Set HATORI_MODEL=llamacpp with a local GGUF model to enable full generation."
+            "Set HATORI_MODEL=ollama (or llamacpp) to enable full generation."
         )
 
     def healthcheck(self) -> dict:
@@ -109,8 +112,73 @@ class LlamaCppAdapter:
             return {"ok": False, "adapter": self.name, "error": str(exc), "offline": True}
 
 
+class OllamaAdapter:
+    name = "ollama"
+
+    def __init__(self) -> None:
+        self.base_url = (os.environ.get("HATORI_OLLAMA_URL") or "http://127.0.0.1:11434").strip().rstrip("/")
+        self.model = (os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b").strip()
+        self.timeout = int((os.environ.get("HATORI_OLLAMA_TIMEOUT") or "60").strip())
+
+    def _request_json(self, path: str, payload: dict | None = None) -> dict:
+        data = None
+        headers = {"Accept": "application/json"}
+        method = "GET"
+        if payload is not None:
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+            method = "POST"
+        req = urllib.request.Request(f"{self.base_url}{path}", data=data, headers=headers, method=method)
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+        return json.loads(body) if body else {}
+
+    def _validate(self) -> None:
+        if not self.model:
+            raise RuntimeError("HATORI_OLLAMA_MODEL must be set")
+        if not (self.base_url.startswith("http://127.0.0.1") or self.base_url.startswith("http://localhost")):
+            raise RuntimeError("HATORI_OLLAMA_URL must point to localhost for offline-first policy")
+
+    def generate(self, system_prompt: str, task_prompt: str) -> str:
+        self._validate()
+        try:
+            payload = {
+                "model": self.model,
+                "system": system_prompt,
+                "prompt": task_prompt,
+                "stream": False,
+            }
+            out = self._request_json("/api/generate", payload=payload)
+            answer = (out.get("response") or "").strip()
+            if not answer:
+                raise RuntimeError("Ollama returned empty response")
+            return answer
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Ollama unavailable at {self.base_url}: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Invalid JSON from Ollama: {exc}") from exc
+
+    def healthcheck(self) -> dict:
+        try:
+            self._validate()
+            out = self._request_json("/api/tags")
+            models = [m.get("name", "") for m in out.get("models", [])]
+            return {
+                "ok": True,
+                "adapter": self.name,
+                "base_url": self.base_url,
+                "model": self.model,
+                "model_available": self.model in models,
+                "offline": True,
+            }
+        except Exception as exc:
+            return {"ok": False, "adapter": self.name, "error": str(exc), "offline": True}
+
+
 def get_model_adapter() -> ModelAdapter:
     mode = os.environ.get("HATORI_MODEL", "none").strip().lower()
+    if mode == "ollama":
+        return OllamaAdapter()
     if mode == "llamacpp":
         return LlamaCppAdapter()
     if mode in {"none", ""}:

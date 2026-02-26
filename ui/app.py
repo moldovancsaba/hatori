@@ -128,7 +128,7 @@ def detect_message_language(text: str) -> str:
 
     if re.search(r"[ăâîșț]", sample) or re.search(r"\b(și|sunt|este|pentru|cum|te rog)\b", sample):
         return "ro"
-    if re.search(r"[áéíóöőúüű]", sample) or re.search(r"\b(és|vagy|kérlek|miért|hogyan|nem)\b", sample):
+    if re.search(r"[áéíóöőúüű]", sample) or re.search(r"\b(szia|és|vagy|kérlek|kerlek|miért|miert|hogyan|nem)\b", sample):
         return "hu"
     if re.search(r"[ñ¿¡]", sample) or re.search(r"\b(que|como|por|favor|gracias|respuesta)\b", sample):
         return "es"
@@ -292,6 +292,8 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
         "\nChat generation requirements:\n"
         f"- Respond in {language_name(language_code)}.\n"
         "- Keep the answer factual and useful.\n"
+        "- Do not repeat the prompt template or system instructions.\n"
+        "- Answer the user request directly.\n"
     )
     try:
         raw_answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()

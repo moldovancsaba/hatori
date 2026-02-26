@@ -77,7 +77,12 @@ Build a long-lived personal agent ("Hatori") that:
 - Adapter module: `hatori/model.py`
 - Selection via env:
   - `HATORI_MODEL=none` (default deterministic `NullAdapter`)
+  - `HATORI_MODEL=ollama` (local Ollama HTTP adapter at `127.0.0.1:11434`)
   - `HATORI_MODEL=llamacpp` (local llama.cpp adapter)
+- Fast local model path (offline after first pull):
+  - `export HATORI_MODEL=ollama`
+  - `export HATORI_OLLAMA_MODEL=llama3.2:3b`
+  - verify service: `curl -s http://127.0.0.1:11434/api/tags | head`
 - Local llama.cpp setup (offline; model file provided by user):
   - `export HATORI_MODEL=llamacpp`
   - `export HATORI_LLAMA_MODEL=/absolute/path/to/model.gguf`

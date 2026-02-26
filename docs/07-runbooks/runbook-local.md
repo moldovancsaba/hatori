@@ -40,6 +40,16 @@ export HATORI_MODEL=none
 python -m hatori.cli model-smoke "Say OK"
 ```
 
+Ollama adapter (fastest operational path; local/offline after model pull):
+
+```bash
+brew services start ollama
+ollama pull llama3.2:3b
+export HATORI_MODEL=ollama
+export HATORI_OLLAMA_MODEL=llama3.2:3b
+python -m hatori.cli model-smoke "Respond in one sentence"
+```
+
 Llama.cpp adapter (local/offline, user-provided model path):
 
 ```bash
@@ -113,3 +123,7 @@ Expected behavior:
   - Verify `HATORI_MODEL=llamacpp`.
   - Verify `HATORI_LLAMA_MODEL` points to a local `.gguf` file.
   - Verify `llama-cli` is installed or set `HATORI_LLAMA_BIN` to the local executable path.
+- Ollama model smoke fails:
+  - Verify `brew services start ollama`.
+  - Verify local service responds on `http://127.0.0.1:11434/api/tags`.
+  - Verify `HATORI_OLLAMA_MODEL` exists locally (`ollama list`).
