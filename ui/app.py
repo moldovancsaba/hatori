@@ -487,6 +487,12 @@ def is_daily_planning_request(text: str) -> bool:
         "plan my day",
         "planning",
         "napi terv",
+        "napi",
+        "prioritás",
+        "prioritas",
+        "teendő",
+        "teendo",
+        "ma",
         "heti terv",
         "tervez",
         "ütemez",
@@ -536,6 +542,114 @@ def greeting_clarifying_answer(language_code: str) -> str:
     return "Hi! What do you want help with today? (for example: daily plan, email, decision, research)"
 
 
+def _extract_json_object(raw: str) -> dict | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        loaded = json.loads(text)
+        return loaded if isinstance(loaded, dict) else None
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            loaded = json.loads(text[start:end + 1])
+            return loaded if isinstance(loaded, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _normalize_plan_struct(language_code: str, parsed: dict | None) -> tuple[str, list[str], list[str]]:
+    answer = ((parsed or {}).get("answer_body") or "").strip()
+    assumptions = [str(x).strip() for x in ((parsed or {}).get("assumptions") or []) if str(x).strip()]
+    actions = [str(x).strip() for x in ((parsed or {}).get("next_actions") or []) if str(x).strip()]
+
+    if not answer:
+        if language_code == "hu":
+            answer = "Itt egy rövid, pragmatikus napi terv a mai napra."
+        else:
+            answer = "Here is a short pragmatic plan for today."
+
+    if not assumptions:
+        if language_code == "hu":
+            assumptions = [
+                "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
+                "Feltételezés: nincs átadott naptár, fix meeting vagy határidő.",
+            ]
+        else:
+            assumptions = [
+                "Assumption: offline mode only, without web sources.",
+                "Assumption: no explicit calendar, fixed meetings, or deadlines were provided.",
+            ]
+
+    if not actions:
+        if language_code == "hu":
+            actions = [
+                "P0 [ ] Nevezd meg a mai egyetlen legfontosabb eredményt.",
+                "P0 [ ] Válassz legfeljebb 3 fókuszfeladatot a mai napra.",
+                "P1 [ ] Bontsd a 3 feladatot első konkrét lépésekre.",
+                "P1 [ ] Ütemezz 1 admin/kommunikációs tételt.",
+                "P1 [ ] Tervezz 1 pufferblokkot megszakításokra.",
+                "P2 [ ] Nap végén tarts 10 perces záróértékelést.",
+            ]
+        else:
+            actions = [
+                "P0 [ ] Define one most important outcome for today.",
+                "P0 [ ] Pick up to 3 focus tasks.",
+                "P1 [ ] Break each task into a first concrete step.",
+                "P1 [ ] Schedule one admin/coordination item.",
+                "P1 [ ] Reserve one buffer block for interruptions.",
+                "P2 [ ] Run a 10-minute end-of-day review.",
+            ]
+
+    normalized: list[str] = []
+    for idx, action in enumerate(actions, start=1):
+        line = action
+        if "p0" not in line.lower() and "p1" not in line.lower() and "p2" not in line.lower():
+            prefix = "P0" if idx <= 2 else ("P1" if idx <= 5 else "P2")
+            line = f"{prefix} [ ] {line.lstrip('- ').strip()}"
+        normalized.append(line)
+
+    if len(normalized) < 5:
+        normalized.extend((normalized[-1:] or ["P2 [ ] Zárd le a napot rövid összegzéssel."]) * (5 - len(normalized)))
+    normalized = normalized[:8]
+    return answer, assumptions[:6], normalized
+
+
+def generate_planning_structured(model, language_code: str, user_text: str, context: dict) -> tuple[str, list[str], list[str]]:
+    if model is None:
+        raise RuntimeError("model unavailable")
+
+    prompt = (
+        f"Respond in {language_name(language_code)}.\n"
+        "Return ONLY valid JSON object, no markdown, no extra text.\n"
+        "Schema:\n"
+        '{"answer_body":"string","assumptions":["string"],"next_actions":["string"]}\n'
+        "Rules:\n"
+        "- 5 to 8 next_actions\n"
+        "- include priority markers P0/P1/P2 in next_actions\n"
+        "- do not include IDs, UUIDs, emb:, metadata, or template headers\n"
+        "- do not echo 'User request:'\n"
+        f"User message: {user_text}\n"
+        f"Context: {json.dumps(context, ensure_ascii=False)}\n"
+    )
+    raw = model.generate(system_prompt="Planning content generator.", task_prompt=prompt).strip()
+    parsed = _extract_json_object(raw)
+    if parsed is None:
+        retry = (
+            f"Return STRICT JSON only in {language_name(language_code)}.\n"
+            '{"answer_body":"string","assumptions":["string"],"next_actions":["string"]}\n'
+            "No markdown. No explanations.\n"
+            f"User message: {user_text}\n"
+        )
+        raw = model.generate(system_prompt="JSON only.", task_prompt=retry).strip()
+        parsed = _extract_json_object(raw)
+    return _normalize_plan_struct(language_code, parsed)
+
+
 def clean_chat_preview(text: str) -> str:
     raw = (text or "").strip().replace("\n", " ")
     if not raw:
@@ -546,7 +660,14 @@ def clean_chat_preview(text: str) -> str:
     return out[:100] + ("..." if len(out) > 100 else "")
 
 
-def render_chat_default_output(answer: str, language_code: str, user_text: str, sources: list[str] | None = None) -> str:
+def render_chat_default_output(
+    answer: str,
+    language_code: str,
+    user_text: str,
+    sources: list[str] | None = None,
+    assumptions_override: list[str] | None = None,
+    next_actions_override: list[str] | None = None,
+) -> str:
     planning = is_daily_planning_request(user_text)
     source_lines = [s for s in (sources or []) if s.strip()]
     if planning and language_code == "hu":
@@ -586,6 +707,10 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str, 
                 "Offline local runtime only; no web retrieval used.",
             ]
             next_actions = ["- [ ] Continue the chat with one concrete follow-up question for refinement."]
+    if assumptions_override:
+        assumptions = [x for x in assumptions_override if str(x).strip()]
+    if next_actions_override:
+        next_actions = [x for x in next_actions_override if str(x).strip()]
     if language_code == "hu":
         evidence_items = source_lines or ["Nincs helyi bizonyíték."]
         evidence = "\n".join(f"- {x}" for x in evidence_items)
@@ -792,6 +917,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
                 "source": "ui",
                 "chat_id": chat_id,
                 "model_adapter": "greeting-shortcut",
+                "generation_path": "greeting_shortcut",
                 "language": language_code,
                 "related_user_interaction_id": user_id,
             },
@@ -808,6 +934,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
                 "source": "ui",
                 "chat_id": chat_id,
                 "model_adapter": "history-shortcut",
+                "generation_path": "history_shortcut",
                 "language": language_code,
                 "related_user_interaction_id": user_id,
             },
@@ -815,6 +942,105 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
 
     model, adapter_error = select_chat_model_adapter()
+    if is_daily_planning_request(text_raw):
+        if adapter_error:
+            plan_answer = (
+                "A helyi modell nem elérhető. Kérlek indítsd el az Ollama szolgáltatást, majd próbáld újra."
+                if language_code == "hu"
+                else "Local model is unavailable. Start Ollama and try again."
+            )
+            assumptions = ["Feltételezés: helyi modell jelenleg nem elérhető."] if language_code == "hu" else ["Assumption: local model is currently unavailable."]
+            actions = ["P0 [ ] Indítsd el az Ollama szolgáltatást.", "P1 [ ] Küldd újra a napi tervezési kérést."] if language_code == "hu" else ["P0 [ ] Start Ollama service.", "P1 [ ] Resend the daily planning request."]
+        else:
+            try:
+                plan_answer, assumptions, actions = generate_planning_structured(
+                    model=model,
+                    language_code=language_code,
+                    user_text=text_raw,
+                    context={
+                        "history": [{"role": x.get("role", ""), "content": (x.get("content") or "")[:140]} for x in history_turns[-6:]],
+                        "pks": summarize_pks_for_model(pks_rows, limit=3),
+                        "evidence": summarize_evidence_for_model(evidence_rows, limit=3),
+                    },
+                )
+            except Exception:
+                if language_code == "hu":
+                    plan_answer = "Itt egy rövid, pragmatikus napi terv a mai napra."
+                    assumptions = [
+                        "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
+                        "Feltételezés: nincs átadott naptár, fix meeting vagy határidő.",
+                    ]
+                    actions = [
+                        "P0 [ ] Nevezd meg a mai egyetlen legfontosabb eredményt.",
+                        "P0 [ ] Válassz legfeljebb 3 fókuszfeladatot a mai napra.",
+                        "P1 [ ] Bontsd a 3 feladatot első konkrét lépésekre.",
+                        "P1 [ ] Ütemezz 1 admin/kommunikációs tételt.",
+                        "P1 [ ] Tervezz 1 pufferblokkot megszakításokra.",
+                        "P2 [ ] Nap végén tarts 10 perces záróértékelést.",
+                    ]
+                else:
+                    plan_answer = "Here is a short pragmatic plan for today."
+                    assumptions = [
+                        "Assumption: offline mode only, without web sources.",
+                        "Assumption: no explicit calendar, fixed meetings, or deadlines were provided.",
+                    ]
+                    actions = [
+                        "P0 [ ] Define one most important outcome for today.",
+                        "P0 [ ] Pick up to 3 focus tasks.",
+                        "P1 [ ] Break each task into a first concrete step.",
+                        "P1 [ ] Schedule one admin/coordination item.",
+                        "P1 [ ] Reserve one buffer block for interruptions.",
+                        "P2 [ ] Run a 10-minute end-of-day review.",
+                    ]
+
+        answer = render_chat_default_output(
+            plan_answer,
+            language_code,
+            text_raw,
+            sources=source_lines,
+            assumptions_override=assumptions,
+            next_actions_override=actions,
+        )
+        if _has_forbidden_user_visible_markers(answer):
+            if language_code == "hu":
+                answer = render_chat_default_output(
+                    "Rendszerhiba történt a válasz összeállításakor. Kérlek próbáld újra.",
+                    language_code,
+                    text_raw,
+                    sources=source_lines,
+                )
+            else:
+                answer = render_chat_default_output(
+                    "A system error occurred while assembling the response. Please retry.",
+                    language_code,
+                    text_raw,
+                    sources=source_lines,
+                )
+            insert_learning(
+                kind="NegativeFeedback",
+                confidence="High",
+                details={
+                    "vote": "down",
+                    "category": "format",
+                    "comment": "planning rendered output failed validator",
+                    "ui_context": {"route": "/chat/send", "source": "validator"},
+                },
+                related_interaction_id=user_id,
+            )
+        insert_interaction(
+            "assistant",
+            answer,
+            {
+                "source": "ui",
+                "chat_id": chat_id,
+                "model_adapter": model.name if model is not None else "unavailable",
+                "generation_path": "planning_structured",
+                "language": language_code,
+                "related_user_interaction_id": user_id,
+            },
+        )
+        return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+
     system_prompt = build_system_prompt()
     task_prompt = build_task_prompt(
         user_text=text_raw,
@@ -853,7 +1079,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         try:
             clean_answer = _repair_assistant_output(model, language_code, text_raw, clean_answer)
         except Exception:
-            clean_answer = "Nem tudok biztonságos, tiszta választ adni ebben a formában. Kérlek próbáld újra rövidebb kéréssel."
+            clean_answer = "Rendszerhiba történt a válasz összeállításakor. Kérlek próbáld újra."
 
     clean_answer = sanitize_assistant_output(clean_answer)
     if _has_forbidden_user_visible_markers(clean_answer) and model is not None:
@@ -863,7 +1089,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             pass
     if _has_forbidden_user_visible_markers(clean_answer):
         if language_code == "hu":
-            clean_answer = "Nem tudok biztonságos, megjeleníthető választ adni ebben a formában. Kérlek írd meg újra röviden a kérésed."
+            clean_answer = "Rendszerhiba történt a válasz összeállításakor. Kérlek próbáld újra."
         else:
             clean_answer = "I cannot produce a safe user-visible answer in this form. Please restate your request briefly."
         insert_learning(
@@ -888,6 +1114,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             "source": "ui",
             "chat_id": chat_id,
             "model_adapter": model.name if model is not None else "unavailable",
+            "generation_path": "standard",
             "language": language_code,
             "related_user_interaction_id": user_id,
         },

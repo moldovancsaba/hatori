@@ -1085,6 +1085,35 @@ def test_88_chat_repair_triggers_on_uuid_leak() -> None:
     assert_true("123e4567-e89b-12d3-a456-426614174000" not in lowered, "final output must not contain leaked UUID")
 
 
+def test_89_planning_today_returns_real_plan_hu() -> None:
+    out = _daily_planning_chat_output("golden-plan-89", PLANNING_TODAY_HU_MESSAGE)
+    answer = _extract_section(out, 2, 3).lower()
+    next_actions = _extract_section(out, 5, 6)
+    assert_true("napi terv" in answer or "mai" in answer or "terv" in answer, "planning answer should contain real planning content")
+    checklist_count = next_actions.count("[ ]")
+    assert_true(5 <= checklist_count <= 8, "planning next actions should contain 5-8 checklist items")
+
+
+def test_90_planning_today_never_refusal_fallback() -> None:
+    out = _daily_planning_chat_output("golden-plan-90", PLANNING_TODAY_HU_MESSAGE)
+    lowered = out.lower()
+    assert_true("nem tudok biztonságos" not in lowered, "planning must not hit refusal fallback")
+    assert_true("próbáld újra rövidebb" not in lowered and "probald ujra rovidebb" not in lowered, "planning must not use retry-shorter fallback text")
+
+
+def test_91_planning_structured_json_path_used() -> None:
+    chat_id = "golden-plan-91"
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
+    answer = _extract_section(out, 2, 3)
+    assert_true("1) " not in answer and "2) " not in answer and "3) " not in answer, "answer body should not contain nested template headers")
+    path = db_scalar(
+        "SELECT COALESCE(metadata->>'generation_path','') FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assert_true(path == "planning_structured", "planning chat should use structured JSON generation path")
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1167,6 +1196,9 @@ def collect_tests() -> list:
         test_86_chat_no_user_request_echo,
         test_87_chat_sources_are_human_readable_only,
         test_88_chat_repair_triggers_on_uuid_leak,
+        test_89_planning_today_returns_real_plan_hu,
+        test_90_planning_today_never_refusal_fallback,
+        test_91_planning_structured_json_path_used,
     ]
 
 
