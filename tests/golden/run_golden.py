@@ -650,17 +650,26 @@ def _daily_planning_chat_output(chat_id: str, message: str, model_mode: str = "n
 
 
 def _assert_template_sections(text: str) -> None:
-    required = [
-        "1) Connectivity State:",
-        "2) Answer / Recommendation",
-        "3) Evidence & Sources",
-        "4) Assumptions & Uncertainties",
-        "5) Next Actions",
-        "6) Memory Patch",
-        "7) Learning Log (J)",
-    ]
-    for marker in required:
-        assert_true(marker in text, f"Missing template section in planning output: {marker}")
+    lowered = text.lower()
+    assert_true("1) connectivity state:" in lowered, "Missing section 1 in planning output")
+    assert_true(
+        ("2) answer / recommendation" in lowered) or ("2) valasz / javaslat" in lowered),
+        "Missing section 2 in planning output",
+    )
+    assert_true(
+        ("3) evidence & sources" in lowered) or ("3) bizonyitekok es forrasok" in lowered),
+        "Missing section 3 in planning output",
+    )
+    assert_true(
+        ("4) assumptions & uncertainties" in lowered) or ("4) feltetelezesek es bizonytalansagok" in lowered),
+        "Missing section 4 in planning output",
+    )
+    assert_true(
+        ("5) next actions" in lowered) or ("5) kovetkezo lepesek" in lowered),
+        "Missing section 5 in planning output",
+    )
+    assert_true("6) memory patch" in lowered, "Missing section 6 in planning output")
+    assert_true("7) learning log (j)" in lowered, "Missing section 7 in planning output")
 
 
 PLANNING_TODAY_HU_MESSAGE = (
@@ -695,7 +704,10 @@ def test_61_planning_today_includes_default_template_sections() -> None:
 def test_62_planning_today_assumptions_present_when_calendar_unknown() -> None:
     chat_id = "golden-plan-62"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    assumptions = out.split("4) Assumptions & Uncertainties", 1)[1].split("5) Next Actions", 1)[0].lower()
+    if "4) Assumptions & Uncertainties" in out:
+        assumptions = out.split("4) Assumptions & Uncertainties", 1)[1].split("5) Next Actions", 1)[0].lower()
+    else:
+        assumptions = out.split("4) Feltetelezesek es Bizonytalansagok", 1)[1].split("5) Kovetkezo lepesek", 1)[0].lower()
     assert_true("nincs atadott naptar" in assumptions or "no explicit calendar" in assumptions, "Assumptions should mention missing calendar input")
     assert_true("meeting" in assumptions, "Assumptions should mention missing meetings")
 
@@ -703,7 +715,10 @@ def test_62_planning_today_assumptions_present_when_calendar_unknown() -> None:
 def test_63_planning_today_next_actions_count_and_priority() -> None:
     chat_id = "golden-plan-63"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    next_actions = out.split("5) Next Actions", 1)[1].split("6) Memory Patch", 1)[0]
+    if "5) Next Actions" in out:
+        next_actions = out.split("5) Next Actions", 1)[1].split("6) Memory Patch", 1)[0]
+    else:
+        next_actions = out.split("5) Kovetkezo lepesek", 1)[1].split("6) Memory Patch", 1)[0]
     checklist_count = next_actions.count("[ ]")
     assert_true(5 <= checklist_count <= 8, "Today planning should contain 5-8 concrete next-action items")
     lowered = next_actions.lower()
@@ -744,7 +759,10 @@ def test_67_planning_today_no_fabricated_commitments() -> None:
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE, model_mode="none")
     _assert_template_sections(out)
     lowered = out.lower()
-    answer = out.split("2) Answer / Recommendation", 1)[1].split("3) Evidence & Sources", 1)[0].lower()
+    if "2) Answer / Recommendation" in out:
+        answer = out.split("2) Answer / Recommendation", 1)[1].split("3) Evidence & Sources", 1)[0].lower()
+    else:
+        answer = out.split("2) Valasz / Javaslat", 1)[1].split("3) Bizonyitekok es Forrasok", 1)[0].lower()
     fabricated_markers = [
         "meeting at ",
         "stakeholder",
@@ -756,6 +774,98 @@ def test_67_planning_today_no_fabricated_commitments() -> None:
     assert_true(not any(m in answer for m in fabricated_markers), "Planning answer must not invent meetings/stakeholders/deadlines")
     assert_true("feltetelezes" in lowered or "assumption" in lowered, "Unknown commitments should be framed as assumptions")
     assert_true("placeholder" not in lowered and "dummy" not in lowered and "tbd" not in lowered, "Planning output must not be placeholder text")
+
+
+def _chat_send_and_get_output(chat_id: str, message: str, model_mode: str = "none") -> str:
+    old_model = os.environ.get("HATORI_MODEL")
+    os.environ["HATORI_MODEL"] = model_mode
+    try:
+        client = ui_client()
+        resp = client.post("/chat/send", data={"chat_id": chat_id, "message": message})
+        assert_true(resp.status_code in {200, 303}, "chat send should succeed")
+    finally:
+        if old_model is None:
+            os.environ.pop("HATORI_MODEL", None)
+        else:
+            os.environ["HATORI_MODEL"] = old_model
+    return db_scalar(
+        "SELECT content FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+
+
+def test_68_chat_no_prompt_leakage_markers() -> None:
+    out = _chat_send_and_get_output("golden-chat-68", "Please provide a concise plan.")
+    lowered = out.lower()
+    forbidden = ["task prompt", "retrieved pks", "required behaviour", "active project", "```"]
+    assert_true(not any(x in lowered for x in forbidden), "assistant output must not leak internal scaffolding markers")
+
+
+def test_69_chat_hungarian_language_mirror() -> None:
+    out = _chat_send_and_get_output("golden-chat-69", "Szia! Szükségem lesz a segítségedre")
+    lowered = out.lower()
+    assert_true("2) valasz / javaslat" in lowered, "Hungarian response should use Hungarian section labels")
+    assert_true("4) feltetelezesek es bizonytalansagok" in lowered, "Hungarian assumptions section label missing")
+    assert_true("5) kovetkezo lepesek" in lowered, "Hungarian next actions section label missing")
+    assert_true("2) answer / recommendation" not in lowered, "Hungarian response must not be English-only template")
+
+
+def test_70_chat_template_sections_present() -> None:
+    out = _chat_send_and_get_output("golden-chat-70", "Please give a short practical plan.")
+    required = [
+        "1) Connectivity State:",
+        "2) Answer / Recommendation",
+        "3) Evidence & Sources",
+        "4) Assumptions & Uncertainties",
+        "5) Next Actions",
+        "6) Memory Patch",
+        "7) Learning Log (J)",
+    ]
+    for marker in required:
+        assert_true(marker in out, f"missing template section: {marker}")
+    assert_true("\n\n3) Evidence & Sources" in out, "template sections should be separated with clean line breaks")
+
+
+def test_71_chat_no_placeholder_markers() -> None:
+    out = _chat_send_and_get_output("golden-chat-71", "Give me a useful one-paragraph recommendation.")
+    lowered = out.lower()
+    assert_true("[null-adapter:" not in lowered, "assistant output must not contain null-adapter placeholder marker")
+
+
+def test_72_chat_decline_feedback_logging_unchanged() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-72"
+    client.post("/chat/send", data={"chat_id": chat_id, "message": "feedback path consistency"})
+    assistant_id = db_scalar(
+        "SELECT id FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    resp = client.post(
+        "/chat/feedback",
+        data={"chat_id": chat_id, "interaction_id": assistant_id, "vote": "down", "category": "format", "comment": "too long"},
+    )
+    assert_true(resp.status_code in {200, 303}, "decline feedback should still succeed")
+    after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    assert_true(after == before + 1, "decline feedback should still write exactly one NegativeFeedback event")
+
+
+def test_73_chat_sanitizer_repair_path() -> None:
+    out = _chat_send_and_get_output("golden-chat-73", "LEAKAGE_FIXTURE please help me with a clean answer.", model_mode="none")
+    lowered = out.lower()
+    forbidden = [
+        "task prompt",
+        "retrieved pks",
+        "required behaviour",
+        "active project",
+        "connectivity:",
+        "time:",
+        "```",
+    ]
+    assert_true(not any(x in lowered for x in forbidden), "sanitizer/repair path must remove leaked scaffolding")
+    assert_true(len(out.strip()) > 120, "sanitizer repair path should still produce substantive output")
 
 
 def collect_tests() -> list:
@@ -819,6 +929,12 @@ def collect_tests() -> list:
         test_65_planning_today_no_memory_patch_by_default,
         test_66_planning_today_learning_log_default,
         test_67_planning_today_no_fabricated_commitments,
+        test_68_chat_no_prompt_leakage_markers,
+        test_69_chat_hungarian_language_mirror,
+        test_70_chat_template_sections_present,
+        test_71_chat_no_placeholder_markers,
+        test_72_chat_decline_feedback_logging_unchanged,
+        test_73_chat_sanitizer_repair_path,
     ]
 
 

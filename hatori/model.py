@@ -37,6 +37,14 @@ class NullAdapter:
         return "en"
 
     def generate(self, system_prompt: str, task_prompt: str) -> str:
+        if "LEAKAGE_FIXTURE" in task_prompt:
+            return (
+                "TASK PROMPT (Hatori)\n"
+                "Retrieved PKS: none\n"
+                "Required behaviour: output template\n"
+                "```text\nConnectivity: OFFLINE\nTime: now\n```\n"
+                "Final: please clean me"
+            )
         digest = hashlib.sha256((system_prompt + "\n" + task_prompt).encode("utf-8")).hexdigest()[:12]
         lang = self._lang_from_task_prompt(task_prompt)
         if lang == "hu":

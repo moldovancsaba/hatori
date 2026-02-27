@@ -164,6 +164,75 @@ def localized_model_error(code: str, err: str) -> str:
     return f"Local model error: {err}"
 
 
+FORBIDDEN_SCAFFOLD_MARKERS = [
+    "task prompt",
+    "retrieved pks",
+    "required behaviour",
+    "active project",
+    "connectivity:",
+    "time:",
+    "local evidence snippets",
+]
+
+
+def sanitize_assistant_output(text: str) -> str:
+    sanitized, _removed_ratio = _sanitize_with_stats(text)
+    return sanitized
+
+
+def _sanitize_with_stats(text: str) -> tuple[str, float]:
+    original = text or ""
+    kept_lines: list[str] = []
+    removed_chars = 0
+    for raw in original.splitlines():
+        line = raw.strip()
+        lowered = line.lower()
+        if "```" in line:
+            removed_chars += len(raw)
+            continue
+        if any(marker in lowered for marker in FORBIDDEN_SCAFFOLD_MARKERS):
+            removed_chars += len(raw)
+            continue
+        kept_lines.append(raw)
+    cleaned = "\n".join(kept_lines).strip()
+    if not cleaned:
+        return "", 1.0
+    ratio = min(1.0, removed_chars / max(1, len(original)))
+    return cleaned, ratio
+
+
+def _needs_repair(raw: str, cleaned: str, removed_ratio: float) -> bool:
+    if not cleaned:
+        return True
+    if removed_ratio > 0.30:
+        return True
+    return len(cleaned.strip()) < 48
+
+
+def _looks_hungarian(text: str) -> bool:
+    lowered = text.lower()
+    markers = ["szia", "kérlek", "kerlek", "ma", "feladat", "feltételezés", "feltetelezes", "következő", "kovetkezo"]
+    hits = sum(1 for m in markers if m in lowered)
+    has_hu_chars = bool(re.search(r"[áéíóöőúüű]", lowered))
+    return has_hu_chars or hits >= 2
+
+
+def _repair_assistant_output(model, language_code: str, user_text: str, leaked_text: str) -> str:
+    strict = (
+        f"Rewrite ONLY the final user-facing answer in {language_name(language_code)}.\n"
+        "Follow the 7-section template only.\n"
+        "Do not include any internal prompts, metadata, scaffolding, or code fences.\n"
+        "Do not include lines like TASK PROMPT, Retrieved PKS, Required behaviour, Connectivity:, Time:, Active Project.\n"
+        f"User request: {user_text}\n"
+        f"Draft to repair: {leaked_text}\n"
+    )
+    repaired = model.generate(system_prompt="Output cleaner.", task_prompt=strict).strip()
+    repaired_sanitized = sanitize_assistant_output(repaired)
+    if not repaired_sanitized:
+        raise RuntimeError("repair produced empty output")
+    return repaired_sanitized
+
+
 def is_daily_planning_request(text: str) -> bool:
     lowered = text.lower()
     markers = [
@@ -215,6 +284,26 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str) 
             "Offline local runtime only; no web retrieval used.",
         ]
         next_actions = ["Continue the chat with a follow-up if you want refinement."]
+    if language_code == "hu":
+        evidence = "- Nincs helyi bizonyíték."
+        assumptions_text = "\n".join(f"- {x}" for x in assumptions)
+        actions_text = "\n".join(next_actions)
+        return (
+            "1) Connectivity State: OFFLINE\n"
+            "2) Valasz / Javaslat\n"
+            f"{answer}\n\n"
+            "3) Bizonyitekok es Forrasok\n"
+            f"{evidence}\n\n"
+            "4) Feltetelezesek es Bizonytalansagok\n"
+            f"{assumptions_text}\n\n"
+            "5) Kovetkezo lepesek\n"
+            f"{actions_text}\n\n"
+            "6) Memory Patch\n"
+            "No memory changes.\n\n"
+            "7) Learning Log (J)\n"
+            "No learning event recorded."
+        )
+
     payload = {
         "connectivity_state": "OFFLINE",
         "answer": answer,
@@ -346,7 +435,23 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
         raw_answer = localized_model_error(language_code, str(exc))
     if not raw_answer:
         raw_answer = localized_model_error(language_code, "empty response")
-    answer = render_chat_default_output(raw_answer, language_code, text)
+
+    clean_answer, removed_ratio = _sanitize_with_stats(raw_answer)
+    if _needs_repair(raw_answer, clean_answer, removed_ratio):
+        try:
+            clean_answer = _repair_assistant_output(model, language_code, text, raw_answer)
+        except Exception:
+            clean_answer = localized_model_error(language_code, "unsafe model output removed")
+    if language_code == "hu" and not _looks_hungarian(clean_answer):
+        try:
+            clean_answer = _repair_assistant_output(model, language_code, text, clean_answer)
+        except Exception:
+            clean_answer = "Nem tudok biztonsagos, tiszta valaszt adni ebben a formaban. Kerlek probald ujra rovidebb kertessel."
+
+    clean_answer = sanitize_assistant_output(clean_answer)
+    if not clean_answer:
+        clean_answer = localized_model_error(language_code, "empty sanitized output")
+    answer = render_chat_default_output(clean_answer, language_code, text)
 
     insert_interaction(
         "assistant",
