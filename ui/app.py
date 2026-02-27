@@ -19,6 +19,8 @@ from fastapi.responses import RedirectResponse
 
 from hatori.embeddings import get_embeddings_adapter
 from hatori.model import get_model_adapter
+from hatori.model import OllamaAdapter
+from hatori.model import prefer_ollama_if_available
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
 from hatori.prompts import render_default_output
@@ -172,6 +174,13 @@ FORBIDDEN_SCAFFOLD_MARKERS = [
     "connectivity:",
     "time:",
     "local evidence snippets",
+    "hatori runtime system",
+    "charter v3",
+    "folytatás:",
+    "canonical task template source",
+    "[null-adapter:",
+    "nulladapter",
+    "fingerprint:",
 ]
 
 
@@ -233,6 +242,15 @@ def _repair_assistant_output(model, language_code: str, user_text: str, leaked_t
     return repaired_sanitized
 
 
+def select_chat_model_adapter():
+    explicit = os.environ.get("HATORI_MODEL", "").strip().lower()
+    if explicit:
+        return get_model_adapter(), None
+    if prefer_ollama_if_available():
+        return OllamaAdapter(), None
+    return None, "Ollama not running; start it via brew services start ollama."
+
+
 def is_daily_planning_request(text: str) -> bool:
     lowered = text.lower()
     markers = [
@@ -252,17 +270,17 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str) 
     planning = is_daily_planning_request(user_text)
     if planning and language_code == "hu":
         assumptions = [
-            "Feltetelezes: a felhasznalo aktualis nyelve magyar.",
-            "Feltetelezes: OFFLINE modban dolgozunk, webes forras nelkul.",
-            "Feltetelezes: nincs atadott naptar, fix meeting, stakeholder-lista vagy deadline.",
+            "Feltételezés: a felhasználó aktuális nyelve magyar.",
+            "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
+            "Feltételezés: nincs átadott naptár, fix meeting, stakeholder-lista vagy határidő.",
         ]
         next_actions = [
-            "- P0 [ ] Ma 1 legfontosabb kimenetet nevezz meg, ami merhetoen lezarhato.",
-            "- P0 [ ] Becsuld meg a realis kapacitast, majd valassz osszesen legfeljebb 3 fokuszfeladatot.",
-            "- P1 [ ] Keszits rovid vegrehajtasi sorrendet a 3 feladathoz (elso lepes + kesz definicio).",
-            "- P1 [ ] Adj hozza 1 admin/kommunikacios tetelt, ami csokkenti a torlodast.",
-            "- P1 [ ] Tervezz 1 puffer tetelt varatlan megszakitasokra.",
-            "- P2 [ ] Nap vegen tarts 10 perces visszatekintest: mi keszult el, mi csuszik, mi a kovetkezo lepes.",
+            "- P0 [ ] Ma 1 legfontosabb kimenetet nevezz meg, ami mérhetően lezárható.",
+            "- P0 [ ] Becsüld meg a reális kapacitást, majd válassz összesen legfeljebb 3 fókuszfeladatot.",
+            "- P1 [ ] Készíts rövid végrehajtási sorrendet a 3 feladathoz (első lépés + kész definíció).",
+            "- P1 [ ] Adj hozzá 1 admin/kommunikációs tételt, ami csökkenti a torlódást.",
+            "- P1 [ ] Tervezz 1 puffer tételt váratlan megszakításokra.",
+            "- P2 [ ] Nap végén tarts 10 perces visszatekintést: mi készült el, mi csúszik, mi a következő lépés.",
         ]
     elif planning:
         assumptions = [
@@ -279,29 +297,36 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str) 
             "- P2 [ ] End with a short review and tomorrow-first-step note.",
         ]
     else:
-        assumptions = [
-            f"Language mode selected from current user message: {language_name(language_code)}.",
-            "Offline local runtime only; no web retrieval used.",
-        ]
-        next_actions = ["Continue the chat with a follow-up if you want refinement."]
+        if language_code == "hu":
+            assumptions = [
+                "Feltételezés: a felhasználó aktuális nyelve magyar.",
+                "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
+            ]
+            next_actions = ["- [ ] Folytasd a beszélgetést egy konkrét következő kérdéssel a pontosításhoz."]
+        else:
+            assumptions = [
+                f"Language mode selected from current user message: {language_name(language_code)}.",
+                "Offline local runtime only; no web retrieval used.",
+            ]
+            next_actions = ["- [ ] Continue the chat with one concrete follow-up question for refinement."]
     if language_code == "hu":
         evidence = "- Nincs helyi bizonyíték."
         assumptions_text = "\n".join(f"- {x}" for x in assumptions)
         actions_text = "\n".join(next_actions)
         return (
-            "1) Connectivity State: OFFLINE\n"
-            "2) Valasz / Javaslat\n"
+            "1) Kapcsolati állapot: OFFLINE\n"
+            "2) Válasz / Javaslat\n"
             f"{answer}\n\n"
-            "3) Bizonyitekok es Forrasok\n"
+            "3) Bizonyítékok és Források\n"
             f"{evidence}\n\n"
-            "4) Feltetelezesek es Bizonytalansagok\n"
+            "4) Feltételezések és Bizonytalanságok\n"
             f"{assumptions_text}\n\n"
-            "5) Kovetkezo lepesek\n"
+            "5) Következő lépések\n"
             f"{actions_text}\n\n"
-            "6) Memory Patch\n"
-            "No memory changes.\n\n"
-            "7) Learning Log (J)\n"
-            "No learning event recorded."
+            "6) Memória patch\n"
+            "Nincs memória módosítás.\n\n"
+            "7) Tanulási napló (J)\n"
+            "Nincs rögzített tanulási esemény."
         )
 
     payload = {
@@ -415,7 +440,7 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
     user_id = insert_interaction("user", text, {"source": "ui", "chat_id": chat_id})
 
     language_code = detect_message_language(text)
-    model = get_model_adapter()
+    model, adapter_error = select_chat_model_adapter()
     system_prompt = build_system_prompt()
     task_prompt = build_task_prompt(
         user_text=text,
@@ -429,24 +454,27 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
         "- Do not repeat the prompt template or system instructions.\n"
         "- Answer the user request directly.\n"
     )
-    try:
-        raw_answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()
-    except Exception as exc:
-        raw_answer = localized_model_error(language_code, str(exc))
+    if adapter_error:
+        raw_answer = localized_model_error(language_code, adapter_error)
+    else:
+        try:
+            raw_answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()
+        except Exception as exc:
+            raw_answer = localized_model_error(language_code, str(exc))
     if not raw_answer:
         raw_answer = localized_model_error(language_code, "empty response")
 
     clean_answer, removed_ratio = _sanitize_with_stats(raw_answer)
-    if _needs_repair(raw_answer, clean_answer, removed_ratio):
+    if model is not None and _needs_repair(raw_answer, clean_answer, removed_ratio):
         try:
             clean_answer = _repair_assistant_output(model, language_code, text, raw_answer)
         except Exception:
             clean_answer = localized_model_error(language_code, "unsafe model output removed")
-    if language_code == "hu" and not _looks_hungarian(clean_answer):
+    if model is not None and language_code == "hu" and not _looks_hungarian(clean_answer):
         try:
             clean_answer = _repair_assistant_output(model, language_code, text, clean_answer)
         except Exception:
-            clean_answer = "Nem tudok biztonsagos, tiszta valaszt adni ebben a formaban. Kerlek probald ujra rovidebb kertessel."
+            clean_answer = "Nem tudok biztonságos, tiszta választ adni ebben a formában. Kérlek próbáld újra rövidebb kéréssel."
 
     clean_answer = sanitize_assistant_output(clean_answer)
     if not clean_answer:
@@ -459,7 +487,7 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
         {
             "source": "ui",
             "chat_id": chat_id,
-            "model_adapter": model.name,
+            "model_adapter": model.name if model is not None else "unavailable",
             "language": language_code,
             "related_user_interaction_id": user_id,
         },

@@ -7,6 +7,7 @@ import shutil
 import json
 import urllib.request
 import urllib.error
+import urllib.parse
 
 
 class ModelAdapter(Protocol):
@@ -226,6 +227,20 @@ class OllamaAdapter:
             }
         except Exception as exc:
             return {"ok": False, "adapter": self.name, "error": str(exc), "offline": True}
+
+
+def prefer_ollama_if_available(base_url: str | None = None, timeout: int = 2) -> bool:
+    url = (base_url or os.environ.get("HATORI_OLLAMA_URL") or "http://127.0.0.1:11434").strip().rstrip("/")
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        return False
+    req = urllib.request.Request(f"{url}/api/tags", headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            _ = resp.read()
+        return True
+    except Exception:
+        return False
 
 
 def get_model_adapter() -> ModelAdapter:

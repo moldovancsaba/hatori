@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import uuid
@@ -651,25 +652,35 @@ def _daily_planning_chat_output(chat_id: str, message: str, model_mode: str = "n
 
 def _assert_template_sections(text: str) -> None:
     lowered = text.lower()
-    assert_true("1) connectivity state:" in lowered, "Missing section 1 in planning output")
+    assert_true(("1) connectivity state:" in lowered) or ("1) kapcsolati állapot:" in lowered), "Missing section 1 in planning output")
     assert_true(
-        ("2) answer / recommendation" in lowered) or ("2) valasz / javaslat" in lowered),
+        ("2) answer / recommendation" in lowered) or ("2) valasz / javaslat" in lowered) or ("2) válasz / javaslat" in lowered),
         "Missing section 2 in planning output",
     )
     assert_true(
-        ("3) evidence & sources" in lowered) or ("3) bizonyitekok es forrasok" in lowered),
+        ("3) evidence & sources" in lowered) or ("3) bizonyítékok és források" in lowered) or ("3) bizonyitekok es forrasok" in lowered),
         "Missing section 3 in planning output",
     )
     assert_true(
-        ("4) assumptions & uncertainties" in lowered) or ("4) feltetelezesek es bizonytalansagok" in lowered),
+        ("4) assumptions & uncertainties" in lowered) or ("4) feltételezések és bizonytalanságok" in lowered) or ("4) feltetelezesek es bizonytalansagok" in lowered),
         "Missing section 4 in planning output",
     )
     assert_true(
-        ("5) next actions" in lowered) or ("5) kovetkezo lepesek" in lowered),
+        ("5) next actions" in lowered) or ("5) következő lépések" in lowered) or ("5) kovetkezo lepesek" in lowered),
         "Missing section 5 in planning output",
     )
-    assert_true("6) memory patch" in lowered, "Missing section 6 in planning output")
-    assert_true("7) learning log (j)" in lowered, "Missing section 7 in planning output")
+    assert_true(("6) memory patch" in lowered) or ("6) memória patch" in lowered), "Missing section 6 in planning output")
+    assert_true(("7) learning log (j)" in lowered) or ("7) tanulási napló (j)" in lowered), "Missing section 7 in planning output")
+
+
+def _extract_section(text: str, section_number: int, next_section_number: int) -> str:
+    start_re = re.compile(rf"(?m)^{section_number}\)\s+.+$")
+    end_re = re.compile(rf"(?m)^{next_section_number}\)\s+.+$")
+    start_match = start_re.search(text)
+    assert_true(start_match is not None, f"Missing section {section_number}")
+    end_match = end_re.search(text, start_match.end())
+    assert_true(end_match is not None, f"Missing section {next_section_number}")
+    return text[start_match.end():end_match.start()]
 
 
 PLANNING_TODAY_HU_MESSAGE = (
@@ -692,7 +703,7 @@ def test_60_planning_today_hu_language_mirror() -> None:
     marker_hits = sum(1 for m in hu_markers if m in lowered)
     assert_true(marker_hits >= 3, "Planning response should be predominantly Hungarian")
     assert_true("offline deterministic response" not in lowered, "Planning response should not be an English placeholder")
-    assert_true("1) connectivity state: offline" in lowered, "OFFLINE state must be declared")
+    assert_true("kapcsolati állapot: offline" in lowered, "OFFLINE state must be declared in Hungarian")
 
 
 def test_61_planning_today_includes_default_template_sections() -> None:
@@ -704,21 +715,18 @@ def test_61_planning_today_includes_default_template_sections() -> None:
 def test_62_planning_today_assumptions_present_when_calendar_unknown() -> None:
     chat_id = "golden-plan-62"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    if "4) Assumptions & Uncertainties" in out:
-        assumptions = out.split("4) Assumptions & Uncertainties", 1)[1].split("5) Next Actions", 1)[0].lower()
-    else:
-        assumptions = out.split("4) Feltetelezesek es Bizonytalansagok", 1)[1].split("5) Kovetkezo lepesek", 1)[0].lower()
-    assert_true("nincs atadott naptar" in assumptions or "no explicit calendar" in assumptions, "Assumptions should mention missing calendar input")
+    assumptions = _extract_section(out, 4, 5).lower()
+    assert_true(
+        ("nincs atadott naptar" in assumptions) or ("nincs átadott naptár" in assumptions) or ("no explicit calendar" in assumptions),
+        "Assumptions should mention missing calendar input",
+    )
     assert_true("meeting" in assumptions, "Assumptions should mention missing meetings")
 
 
 def test_63_planning_today_next_actions_count_and_priority() -> None:
     chat_id = "golden-plan-63"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    if "5) Next Actions" in out:
-        next_actions = out.split("5) Next Actions", 1)[1].split("6) Memory Patch", 1)[0]
-    else:
-        next_actions = out.split("5) Kovetkezo lepesek", 1)[1].split("6) Memory Patch", 1)[0]
+    next_actions = _extract_section(out, 5, 6)
     checklist_count = next_actions.count("[ ]")
     assert_true(5 <= checklist_count <= 8, "Today planning should contain 5-8 concrete next-action items")
     lowered = next_actions.lower()
@@ -738,9 +746,9 @@ def test_65_planning_today_no_memory_patch_by_default() -> None:
     chat_id = "golden-plan-65"
     before_pks_ah = int(db_scalar("SELECT count(*) FROM pks_records WHERE module IN ('A','B','C','D','E','F','G','H');"))
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    memory_patch = out.split("6) Memory Patch", 1)[1].split("7) Learning Log (J)", 1)[0]
+    memory_patch = _extract_section(out, 6, 7)
     mp_lower = memory_patch.lower()
-    assert_true("no memory changes." in mp_lower or "nincs memoria" in mp_lower, "Planning should not write memory by default")
+    assert_true("nincs memória módosítás." in mp_lower or "no memory changes." in mp_lower, "Planning should not write memory by default")
     after_pks_ah = int(db_scalar("SELECT count(*) FROM pks_records WHERE module IN ('A','B','C','D','E','F','G','H');"))
     assert_true(after_pks_ah == before_pks_ah, "Planning response must not auto-write PKS A-H")
 
@@ -751,7 +759,10 @@ def test_66_planning_today_learning_log_default() -> None:
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
     after = int(db_scalar("SELECT count(*) FROM learning_events;"))
     assert_true(after == before, "Planning response path should not auto-log learning events without feedback")
-    assert_true("No learning event recorded." in out, "Learning log section should show no event by default")
+    assert_true(
+        ("Nincs rögzített tanulási esemény." in out) or ("No learning event recorded." in out),
+        "Learning log section should show no event by default",
+    )
 
 
 def test_67_planning_today_no_fabricated_commitments() -> None:
@@ -759,10 +770,7 @@ def test_67_planning_today_no_fabricated_commitments() -> None:
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE, model_mode="none")
     _assert_template_sections(out)
     lowered = out.lower()
-    if "2) Answer / Recommendation" in out:
-        answer = out.split("2) Answer / Recommendation", 1)[1].split("3) Evidence & Sources", 1)[0].lower()
-    else:
-        answer = out.split("2) Valasz / Javaslat", 1)[1].split("3) Bizonyitekok es Forrasok", 1)[0].lower()
+    answer = _extract_section(out, 2, 3).lower()
     fabricated_markers = [
         "meeting at ",
         "stakeholder",
@@ -772,7 +780,10 @@ def test_67_planning_today_no_fabricated_commitments() -> None:
         "hatarido:",
     ]
     assert_true(not any(m in answer for m in fabricated_markers), "Planning answer must not invent meetings/stakeholders/deadlines")
-    assert_true("feltetelezes" in lowered or "assumption" in lowered, "Unknown commitments should be framed as assumptions")
+    assert_true(
+        ("feltetelezes" in lowered) or ("feltételezés" in lowered) or ("assumption" in lowered),
+        "Unknown commitments should be framed as assumptions",
+    )
     assert_true("placeholder" not in lowered and "dummy" not in lowered and "tbd" not in lowered, "Planning output must not be placeholder text")
 
 
@@ -805,10 +816,11 @@ def test_68_chat_no_prompt_leakage_markers() -> None:
 def test_69_chat_hungarian_language_mirror() -> None:
     out = _chat_send_and_get_output("golden-chat-69", "Szia! Szükségem lesz a segítségedre")
     lowered = out.lower()
-    assert_true("2) valasz / javaslat" in lowered, "Hungarian response should use Hungarian section labels")
-    assert_true("4) feltetelezesek es bizonytalansagok" in lowered, "Hungarian assumptions section label missing")
-    assert_true("5) kovetkezo lepesek" in lowered, "Hungarian next actions section label missing")
+    assert_true("2) válasz / javaslat" in lowered, "Hungarian response should use Hungarian section labels")
+    assert_true("4) feltételezések és bizonytalanságok" in lowered, "Hungarian assumptions section label missing")
+    assert_true("5) következő lépések" in lowered, "Hungarian next actions section label missing")
     assert_true("2) answer / recommendation" not in lowered, "Hungarian response must not be English-only template")
+    assert_true("continue the chat with a follow-up" not in lowered, "Hungarian response must not include English fallback lines")
 
 
 def test_70_chat_template_sections_present() -> None:
@@ -866,6 +878,27 @@ def test_73_chat_sanitizer_repair_path() -> None:
     ]
     assert_true(not any(x in lowered for x in forbidden), "sanitizer/repair path must remove leaked scaffolding")
     assert_true(len(out.strip()) > 120, "sanitizer repair path should still produce substantive output")
+
+
+def test_74_chat_ollama_down_returns_clean_error_not_stub() -> None:
+    old_model = os.environ.get("HATORI_MODEL")
+    old_url = os.environ.get("HATORI_OLLAMA_URL")
+    os.environ.pop("HATORI_MODEL", None)
+    os.environ["HATORI_OLLAMA_URL"] = "http://127.0.0.1:1"
+    try:
+        out = _chat_send_and_get_output("golden-chat-74", "Szia! Kérlek adj rövid segítséget.", model_mode="")
+    finally:
+        if old_model is None:
+            os.environ.pop("HATORI_MODEL", None)
+        else:
+            os.environ["HATORI_MODEL"] = old_model
+        if old_url is None:
+            os.environ.pop("HATORI_OLLAMA_URL", None)
+        else:
+            os.environ["HATORI_OLLAMA_URL"] = old_url
+    lowered = out.lower()
+    assert_true("ollama not running" in lowered or "brew services start ollama" in lowered, "ollama-down path should show clean startup guidance")
+    assert_true("[null-adapter:" not in lowered and "nulladapter" not in lowered and "fingerprint" not in lowered, "ollama-down path must not produce stub output")
 
 
 def collect_tests() -> list:
@@ -935,6 +968,7 @@ def collect_tests() -> list:
         test_71_chat_no_placeholder_markers,
         test_72_chat_decline_feedback_logging_unchanged,
         test_73_chat_sanitizer_repair_path,
+        test_74_chat_ollama_down_returns_clean_error_not_stub,
     ]
 
 
