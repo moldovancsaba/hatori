@@ -19,6 +19,7 @@ from fastapi.responses import RedirectResponse
 
 from hatori.embeddings import get_embeddings_adapter
 from hatori.model import get_model_adapter
+from hatori.model import get_task_model_adapter
 from hatori.model import OllamaAdapter
 from hatori.model import prefer_ollama_if_available
 from hatori.prompts import build_system_prompt
@@ -472,13 +473,67 @@ def _has_forbidden_user_visible_markers(text: str) -> bool:
     return any(m in lowered for m in FORBIDDEN_USER_VISIBLE_MARKERS)
 
 
-def select_chat_model_adapter():
-    explicit = os.environ.get("HATORI_MODEL", "").strip().lower()
-    if explicit:
-        return get_model_adapter(), None
-    if prefer_ollama_if_available():
-        return OllamaAdapter(), None
-    return None, "Ollama not running; start it via brew services start ollama."
+def select_chat_model_adapter(task: str = "reply_write"):
+    adapter, adapter_error, _route_meta = get_task_model_adapter(task)
+    return adapter, adapter_error
+
+
+def _extract_json_object_lenient(raw: str) -> dict | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(text[start:end + 1])
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def build_drafter_context_pack(user_text: str, language_code: str, history_turns: list[dict], pks_rows: list[dict], evidence_rows: list[dict]) -> dict:
+    model, err = select_chat_model_adapter(task="context_pack")
+    if model is None or err:
+        return {}
+
+    compact_history = [
+        {"role": x.get("role", ""), "content": (x.get("content") or "")[:160]}
+        for x in history_turns[-6:]
+    ]
+    prompt = (
+        f"Return STRICT JSON only in {language_name(language_code)}. No markdown.\n"
+        "Schema:\n"
+        '{"intent":"string","constraints":["string"],"retrieval_queries":["string"],"response_outline":["string"]}\n'
+        "Rules:\n"
+        "- Keep intent short.\n"
+        "- 1-4 constraints.\n"
+        "- 1-3 retrieval_queries.\n"
+        "- 2-5 response_outline bullets.\n"
+        f"User message: {user_text}\n"
+        f"History: {json.dumps(compact_history, ensure_ascii=False)}\n"
+        f"PKS: {json.dumps(summarize_pks_for_model(pks_rows, limit=3), ensure_ascii=False)}\n"
+        f"Evidence: {json.dumps(summarize_evidence_for_model(evidence_rows, limit=3), ensure_ascii=False)}\n"
+    )
+    try:
+        raw = model.generate(system_prompt="Fast internal planner.", task_prompt=prompt)
+        parsed = _extract_json_object_lenient(raw)
+        if not parsed:
+            return {}
+        return {
+            "intent": str(parsed.get("intent") or "").strip()[:120],
+            "constraints": [str(x).strip()[:160] for x in (parsed.get("constraints") or []) if str(x).strip()][:4],
+            "retrieval_queries": [str(x).strip()[:120] for x in (parsed.get("retrieval_queries") or []) if str(x).strip()][:3],
+            "response_outline": [str(x).strip()[:200] for x in (parsed.get("response_outline") or []) if str(x).strip()][:5],
+        }
+    except Exception:
+        return {}
 
 
 def is_daily_planning_request(text: str) -> bool:
@@ -968,8 +1023,10 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         )
         return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
 
-    model, adapter_error = select_chat_model_adapter()
-    if is_daily_planning_request(text_raw):
+    is_planning = is_daily_planning_request(text_raw)
+    model_task = "plan_write" if is_planning else "reply_write"
+    model, adapter_error = select_chat_model_adapter(task=model_task)
+    if is_planning:
         if adapter_error:
             plan_answer = (
                 "A helyi modell nem elérhető. Kérlek indítsd el az Ollama szolgáltatást, majd próbáld újra."
@@ -1069,6 +1126,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
 
     system_prompt = build_system_prompt()
+    drafter_pack = build_drafter_context_pack(text_raw, language_code, history_turns, pks_rows, evidence_rows)
     task_prompt = build_task_prompt(
         user_text=text_raw,
         connectivity="OFFLINE",
@@ -1077,6 +1135,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             "recent_history": [{"role": (x.get("role") or ""), "content": (x.get("content") or "")[:220]} for x in history_turns[-6:]],
             "pks_approved": summarize_pks_for_model(pks_rows, limit=4),
             "local_evidence_top": summarize_evidence_for_model(evidence_rows, limit=4),
+            "drafter_pack": drafter_pack,
         },
     )
     task_prompt += (

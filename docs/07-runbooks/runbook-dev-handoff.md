@@ -8,8 +8,8 @@ This runbook is for onboarding a developer/developer-agent to the {hatori} repo.
 - Open PR: https://github.com/moldovancsaba/hatori/pull/4
 - Latest CI run: https://github.com/moldovancsaba/hatori/actions/runs/22484817404
 - Dedicated ports:
-  - UI: `8093` (localhost)
-  - API: `8094` (localhost)
+  - UI: `23571` (localhost)
+  - API: `23572` (localhost)
 - Continuation notes: `docs/07-runbooks/braindump-next-agent.md`
 
 ## Repo
@@ -80,10 +80,10 @@ Expected final lines:
 
 Sprint 04 chat/upload verification:
 ```bash
-PORT=8093 make run-ui-hatori
-curl -s -o /dev/null -w "GET_CHAT_HTTP=%{http_code}\n" http://127.0.0.1:8093/chat
-curl -s -o /dev/null -w "POST_CHAT_SEND_HTTP=%{http_code}\n" -X POST http://127.0.0.1:8093/chat/send -d "chat_id=proof-chat&message=hello" -H "Content-Type: application/x-www-form-urlencoded"
-curl -s -o /dev/null -w "POST_UPLOAD_HTTP=%{http_code}\n" -F "file=@tests/golden/fixtures/upload_note.txt;type=text/plain" http://127.0.0.1:8093/upload
+PORT=23571 make run-ui-hatori
+curl -s -o /dev/null -w "GET_CHAT_HTTP=%{http_code}\n" http://127.0.0.1:23571/chat
+curl -s -o /dev/null -w "POST_CHAT_SEND_HTTP=%{http_code}\n" -X POST http://127.0.0.1:23571/chat/send -d "chat_id=proof-chat&message=hello" -H "Content-Type: application/x-www-form-urlencoded"
+curl -s -o /dev/null -w "POST_UPLOAD_HTTP=%{http_code}\n" -F "file=@tests/golden/fixtures/upload_note.txt;type=text/plain" http://127.0.0.1:23571/upload
 ```
 Expected:
 - `GET_CHAT_HTTP=200`
@@ -180,7 +180,7 @@ Mission: stabilize API response quality for `{reply}` integration while preservi
 
 Hard requirements:
 1) Keep API contract and auth unchanged (`/v1/*`, `X-Hatori-Token`, `HATORI_API_TOKEN`).
-2) Keep localhost-only binding and port separation (`UI 8093`, `API 8094`).
+2) Keep localhost-only binding and port separation (`UI 23571`, `API 23572`).
 3) Do not regress leakage rails (no UUID, emb:, artefact_id, User request echo, internal scaffolding).
 4) Keep `make test` and `planning_check.sh` green with no skipped tests.
 
@@ -194,7 +194,7 @@ Implementation focus:
 Verification to run:
 - make test
 - ./tools/scripts/planning_check.sh
-- curl health/respond/feedback/search proofs on :8094
+- curl health/respond/feedback/search proofs on :23572
 
 Deliverables:
 - PR URL + green CI URL

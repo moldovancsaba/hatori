@@ -22,7 +22,7 @@ Scope:
   - reduced repetitive logging; now logs only when state changes or on actionable errors
 
 ## 3) Hard-coded port references in menu bar app
-- Finding: menu bar app used fixed `8093/8094` URLs.
+- Finding: menu bar app used fixed `23571/23572` URLs.
 - Risk: incorrect behavior if ports are overridden in env.
 - Action taken:
   - menu app now reads `UI_PORT` and `API_PORT` from `~/.config/hatori/hatori.env`

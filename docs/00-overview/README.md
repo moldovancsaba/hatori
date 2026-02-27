@@ -53,11 +53,11 @@ Build a long-lived personal agent ("{hatori}") that:
 - `python -m hatori.cli consistency-check --subset 8`
 
 ## POC loop (Sprint 04 chat + upload)
-- Start UI: `PORT=8093 make run-ui-hatori`
+- Start UI: `PORT=23571 make run-ui-hatori`
 - Open local routes:
-  - `http://127.0.0.1:8093/chat`
-  - `http://127.0.0.1:8093/upload`
-  - `http://127.0.0.1:8093/search`
+  - `http://127.0.0.1:23571/chat`
+  - `http://127.0.0.1:23571/upload`
+  - `http://127.0.0.1:23571/search`
 - Chat flow:
   - send message in `/chat`
   - assistant reply is logged in `interaction_events` with `related_user_interaction_id`

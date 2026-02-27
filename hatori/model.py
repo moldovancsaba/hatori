@@ -176,10 +176,10 @@ class LlamaCppAdapter:
 class OllamaAdapter:
     name = "ollama"
 
-    def __init__(self) -> None:
-        self.base_url = (os.environ.get("HATORI_OLLAMA_URL") or "http://127.0.0.1:11434").strip().rstrip("/")
-        self.model = (os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b").strip()
-        self.timeout = int((os.environ.get("HATORI_OLLAMA_TIMEOUT") or "60").strip())
+    def __init__(self, model: str | None = None, base_url: str | None = None, timeout: int | None = None) -> None:
+        self.base_url = (base_url or os.environ.get("HATORI_OLLAMA_URL") or "http://127.0.0.1:11434").strip().rstrip("/")
+        self.model = (model or os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b").strip()
+        self.timeout = int((str(timeout) if timeout is not None else (os.environ.get("HATORI_OLLAMA_TIMEOUT") or "60")).strip())
 
     def _request_json(self, path: str, payload: dict | None = None) -> dict:
         data = None
@@ -236,6 +236,64 @@ class OllamaAdapter:
             return {"ok": False, "adapter": self.name, "error": str(exc), "offline": True}
 
 
+class MlxAdapter:
+    name = "mlx"
+
+    def __init__(self, model: str | None = None, timeout: int | None = None) -> None:
+        self.model = (model or os.environ.get("HATORI_MLX_MODEL") or "").strip()
+        self.timeout = int((str(timeout) if timeout is not None else (os.environ.get("HATORI_MLX_TIMEOUT_S") or "60")).strip())
+        self.max_tokens = int((os.environ.get("HATORI_MLX_MAX_TOKENS") or "512").strip())
+        self.temperature = float((os.environ.get("HATORI_MLX_TEMPERATURE") or "0.2").strip())
+
+    def _validate(self) -> None:
+        if not self.model:
+            raise RuntimeError("HATORI_MLX_MODEL is required for MLX backend")
+        if not shutil.which("python3"):
+            raise RuntimeError("python3 not found for MLX backend")
+
+    def _run_mlx(self, prompt: str) -> str:
+        code = (
+            "import sys\n"
+            "from mlx_lm import load, generate\n"
+            "model_id = sys.argv[1]\n"
+            "max_tokens = int(sys.argv[2])\n"
+            "temperature = float(sys.argv[3])\n"
+            "prompt = sys.argv[4]\n"
+            "model, tokenizer = load(model_id)\n"
+            "out = generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens, temp=temperature, verbose=False)\n"
+            "print(out if isinstance(out, str) else str(out))\n"
+        )
+        proc = subprocess.run(
+            ["python3", "-c", code, self.model, str(self.max_tokens), str(self.temperature), prompt],
+            capture_output=True,
+            text=True,
+            timeout=self.timeout,
+        )
+        if proc.returncode != 0:
+            err = proc.stderr.strip() or proc.stdout.strip() or "mlx generation failed"
+            raise RuntimeError(err)
+        return proc.stdout.strip()
+
+    def generate(self, system_prompt: str, task_prompt: str) -> str:
+        self._validate()
+        prompt = f"[SYSTEM]\n{system_prompt}\n\n[USER]\n{task_prompt}\n\n[ASSISTANT]\n"
+        out = self._run_mlx(prompt)
+        if not out:
+            raise RuntimeError("MLX returned empty response")
+        return out
+
+    def healthcheck(self) -> dict:
+        try:
+            self._validate()
+            check_code = "import mlx_lm; print('ok')"
+            proc = subprocess.run(["python3", "-c", check_code], capture_output=True, text=True, timeout=10)
+            if proc.returncode != 0:
+                raise RuntimeError(proc.stderr.strip() or "mlx_lm import failed")
+            return {"ok": True, "adapter": self.name, "model": self.model, "offline": True}
+        except Exception as exc:
+            return {"ok": False, "adapter": self.name, "error": str(exc), "offline": True}
+
+
 def prefer_ollama_if_available(base_url: str | None = None, timeout: int = 2) -> bool:
     url = (base_url or os.environ.get("HATORI_OLLAMA_URL") or "http://127.0.0.1:11434").strip().rstrip("/")
     parsed = urllib.parse.urlparse(url)
@@ -256,6 +314,166 @@ def get_model_adapter() -> ModelAdapter:
         return OllamaAdapter()
     if mode == "llamacpp":
         return LlamaCppAdapter()
+    if mode == "mlx":
+        return MlxAdapter()
     if mode in {"none", ""}:
         return NullAdapter()
     raise RuntimeError(f"Unsupported HATORI_MODEL value: {mode}")
+
+
+def _route_env_key(task: str, suffix: str) -> str:
+    safe = task.upper().replace("-", "_")
+    return f"HATORI_ROUTE_{safe}_{suffix}"
+
+
+def _route_defaults(task: str) -> dict:
+    # Backward-compatible defaults; final routing should be set in hatori.env.
+    defaults = {
+        "reply_write": {
+            "backend": "ollama",
+            "model": os.environ.get("HATORI_OLLAMA_MODEL", "llama3.2:3b"),
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "plan_write": {
+            "backend": "ollama",
+            "model": os.environ.get("HATORI_OLLAMA_MODEL", "llama3.2:3b"),
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "rewrite_polish": {
+            "backend": "ollama",
+            "model": os.environ.get("HATORI_OLLAMA_MODEL", "llama3.2:3b"),
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "classify_intent": {
+            "backend": "ollama",
+            "model": "llama3.2:1b",
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "extract_fields": {
+            "backend": "ollama",
+            "model": "llama3.2:1b",
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "context_pack": {
+            "backend": "ollama",
+            "model": "llama3.2:1b",
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "retrieval_query_build": {
+            "backend": "ollama",
+            "model": "llama3.2:1b",
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "edit_pattern_cluster": {
+            "backend": "ollama",
+            "model": "llama3.2:1b",
+            "fallback_backend": "none",
+            "fallback_model": "",
+        },
+        "answer_score": {
+            "backend": "ollama",
+            "model": "llama3.2:3b",
+            "fallback_backend": "ollama",
+            "fallback_model": "gemma2:2b",
+        },
+        "quality_gate": {
+            "backend": "ollama",
+            "model": "llama3.2:3b",
+            "fallback_backend": "ollama",
+            "fallback_model": "gemma2:2b",
+        },
+    }
+    return defaults.get(task, defaults["reply_write"])
+
+
+def _resolve_route(task: str) -> dict:
+    d = _route_defaults(task)
+    backend = (os.environ.get(_route_env_key(task, "BACKEND")) or d["backend"] or "none").strip().lower()
+    model = (os.environ.get(_route_env_key(task, "MODEL")) or d["model"] or "").strip()
+    fb_backend = (os.environ.get(_route_env_key(task, "FALLBACK_BACKEND")) or d["fallback_backend"] or "none").strip().lower()
+    fb_model = (os.environ.get(_route_env_key(task, "FALLBACK_MODEL")) or d["fallback_model"] or "").strip()
+    return {
+        "task": task,
+        "backend": backend,
+        "model": model,
+        "fallback_backend": fb_backend,
+        "fallback_model": fb_model,
+    }
+
+
+def _adapter_from_backend(backend: str, model: str) -> ModelAdapter:
+    b = (backend or "").strip().lower()
+    if b == "ollama":
+        return OllamaAdapter(model=model or None)
+    if b == "mlx":
+        return MlxAdapter(model=model or None)
+    if b == "llamacpp":
+        return LlamaCppAdapter()
+    if b == "none":
+        return NullAdapter()
+    raise RuntimeError(f"unsupported backend: {backend}")
+
+
+def get_task_model_adapter(task: str) -> tuple[ModelAdapter | None, str | None, dict]:
+    explicit_mode = (os.environ.get("HATORI_MODEL") or "").strip().lower()
+    if explicit_mode:
+        try:
+            adapter = get_model_adapter()
+            return adapter, None, {
+                "task": task,
+                "backend_used": adapter.name,
+                "fallback_used": False,
+                "route": "explicit_HATORI_MODEL",
+            }
+        except Exception as exc:
+            return None, str(exc), {"task": task, "backend_used": "none", "fallback_used": False, "route": "explicit_HATORI_MODEL"}
+
+    route = _resolve_route(task)
+    errors: list[str] = []
+
+    for idx, (backend, model) in enumerate(
+        [
+            (route["backend"], route["model"]),
+            (route["fallback_backend"], route["fallback_model"]),
+        ]
+    ):
+        if not backend or backend == "none":
+            continue
+        try:
+            adapter = _adapter_from_backend(backend, model)
+            health = adapter.healthcheck()
+            if not health.get("ok"):
+                raise RuntimeError(str(health.get("error") or f"{backend} healthcheck failed"))
+            return adapter, None, {
+                "task": task,
+                "backend_used": adapter.name,
+                "model_used": getattr(adapter, "model", ""),
+                "fallback_used": idx > 0,
+                "route": route,
+            }
+        except Exception as exc:
+            errors.append(f"{backend}: {exc}")
+
+    if prefer_ollama_if_available():
+        adapter = OllamaAdapter()
+        return adapter, None, {
+            "task": task,
+            "backend_used": adapter.name,
+            "model_used": adapter.model,
+            "fallback_used": True,
+            "route": "legacy_ollama_probe",
+        }
+
+    return None, "Ollama not running; start it via brew services start ollama.", {
+        "task": task,
+        "backend_used": "none",
+        "fallback_used": False,
+        "route": route,
+    }

@@ -120,14 +120,14 @@ python -m hatori.cli consistency-check --subset 8
 ### UI chat + upload flow
 
 ```bash
-PORT=8093 make run-ui-hatori
+PORT=23571 make run-ui-hatori
 ```
 
 Open:
-- `http://127.0.0.1:8093/chat`
-- `http://127.0.0.1:8093/upload`
-- `http://127.0.0.1:8093/search`
-- API health: `http://127.0.0.1:8094/v1/health`
+- `http://127.0.0.1:23571/chat`
+- `http://127.0.0.1:23571/upload`
+- `http://127.0.0.1:23571/search`
+- API health: `http://127.0.0.1:23572/v1/health`
 
 Expected behavior:
 - `/chat/send` creates user + assistant `interaction_events` scoped by `metadata.chat_id`.
@@ -180,7 +180,7 @@ source ~/.config/hatori/hatori.env
 Ask {hatori}:
 
 ```bash
-RESP=$(curl -s -X POST http://127.0.0.1:8094/v1/agent/respond \
+RESP=$(curl -s -X POST http://127.0.0.1:23572/v1/agent/respond \
   -H "Content-Type: application/json" \
   -H "X-Hatori-Token: $HATORI_API_TOKEN" \
   -d '{
@@ -197,7 +197,7 @@ ORIG=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['a
 Outcome `sent_as_is`:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8094/v1/agent/outcome \
+curl -s -X POST http://127.0.0.1:23572/v1/agent/outcome \
   -H "Content-Type: application/json" \
   -H "X-Hatori-Token: $HATORI_API_TOKEN" \
   -d "{
@@ -236,7 +236,7 @@ payload = {
   "edit_reason":"shorter + more natural"
 }
 subprocess.run([
-  "curl","-s","-X","POST","http://127.0.0.1:8094/v1/agent/outcome",
+  "curl","-s","-X","POST","http://127.0.0.1:23572/v1/agent/outcome",
   "-H","Content-Type: application/json",
   "-H",f"X-Hatori-Token: {os.environ['HATORI_API_TOKEN']}",
   "-d",json.dumps(payload, ensure_ascii=False),
@@ -247,3 +247,27 @@ PY
 Idempotency behavior:
 - `external_outcome_id` is unique.
 - Repeating the same payload returns the existing IDs and does not create duplicate `delivery_events` / `learning_events`.
+
+## Per-Task Model Routing (Final)
+
+Route lanes:
+- Writer: `reply_write`, `plan_write`, `rewrite_polish`
+- Drafter: `classify_intent`, `extract_fields`, `context_pack`, `retrieval_query_build`, `edit_pattern_cluster`
+- Judge: `answer_score`, `quality_gate`
+
+Configure in `~/.config/hatori/hatori.env` using `HATORI_ROUTE_<TASK>_BACKEND|MODEL|FALLBACK_*` keys.
+
+Recommended production setup:
+- Writer primary: `mlx` + Apertus model id
+- Writer fallback: `ollama:gemma2:2b`
+- Drafter primary: `ollama:gemma3:1b`
+- Drafter fallback: `ollama:llama3.2:1b`
+- Judge primary: `ollama:llama3.2:3b`
+
+Bootstrap and model pull:
+
+```bash
+make bootstrap
+make models-pull
+make doctor
+```

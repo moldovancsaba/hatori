@@ -5,8 +5,8 @@ This document is the canonical contract for external apps that send content to {
 ## 1) Transport and Base URL
 
 - Protocol: HTTP/1.1 JSON + multipart upload
-- Base URL (default local): `http://127.0.0.1:8094`
-- UI (separate service): `http://127.0.0.1:8093`
+- Base URL (default local): `http://127.0.0.1:23572`
+- UI (separate service): `http://127.0.0.1:23571`
 
 ## 2) Authentication
 
@@ -44,7 +44,7 @@ Current status: **no WebSocket endpoint is exposed**.
 
 - There is no `/ws` or `/v1/stream` contract in v1.
 - Use synchronous HTTP calls.
-- If streaming is added later, it should be on API port `8094` (no new public port required).
+- If streaming is added later, it should be on API port `23572` (no new public port required).
 
 ## 5) Error Model
 
@@ -89,8 +89,8 @@ Response `200`:
 {
   "status": "ok",
   "version": "0.x.y",
-  "ui_port": 8093,
-  "api_port": 8094,
+  "ui_port": 23571,
+  "api_port": 23572,
   "db": "ok",
   "model": "none|ollama|llamacpp",
   "model_name": "...",
@@ -316,6 +316,20 @@ No internal IDs are returned.
 - call `/v1/agent/outcome` with `status=edited_then_sent`
 - include `original_text`, `final_sent_text`, and `diff` (unified diff)
 
+## 11) Integrator Acceptance Gate
+
+For any external team/channel integration, run:
+
+```bash
+make integration-acceptance
+```
+
+This enforces idempotency, auth, outcome validation, and replay behavior for the ingest/respond/outcome loop.
+
+Related docs:
+- `docs/12-reply-integration/README.md`
+- `docs/12-reply-integration/integration-acceptance.md`
+
 ## 10) Minimal cURL Examples
 
 Load token:
@@ -325,12 +339,12 @@ source ~/.config/hatori/hatori.env
 
 Health:
 ```bash
-curl -s http://127.0.0.1:8094/v1/health | python3 -m json.tool
+curl -s http://127.0.0.1:23572/v1/health | python3 -m json.tool
 ```
 
 Respond:
 ```bash
-curl -s -X POST http://127.0.0.1:8094/v1/agent/respond \
+curl -s -X POST http://127.0.0.1:23572/v1/agent/respond \
   -H "Content-Type: application/json" \
   -H "X-Hatori-Token: $HATORI_API_TOKEN" \
   -d '{
@@ -344,7 +358,7 @@ curl -s -X POST http://127.0.0.1:8094/v1/agent/respond \
 
 Outcome sent_as_is:
 ```bash
-curl -s -X POST http://127.0.0.1:8094/v1/agent/outcome \
+curl -s -X POST http://127.0.0.1:23572/v1/agent/outcome \
   -H "Content-Type: application/json" \
   -H "X-Hatori-Token: $HATORI_API_TOKEN" \
   -d '{
@@ -360,3 +374,12 @@ curl -s -X POST http://127.0.0.1:8094/v1/agent/outcome \
 - Contract version: v1 (`/v1/*`)
 - Keep token auth and localhost bind defaults unchanged.
 - No WebSocket contract in v1.
+
+## 13) Internal Model Routing
+
+For v1 endpoints, model execution is routed internally by task class:
+- writer tasks for user-facing responses
+- drafter tasks for internal context preparation
+- judge tasks for scoring/quality operations
+
+This routing is configured via `HATORI_ROUTE_*` environment variables and does not change the public API contract.

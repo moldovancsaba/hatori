@@ -338,8 +338,10 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
         answer = ui.render_chat_default_output(followup_answer, language_code, message, sources=source_lines)
         return answer, language_code, source_lines, "history_shortcut"
 
-    model, adapter_error = ui.select_chat_model_adapter()
-    if ui.is_daily_planning_request(message):
+    is_planning = ui.is_daily_planning_request(message)
+    model_task = "plan_write" if is_planning else "reply_write"
+    model, adapter_error = ui.select_chat_model_adapter(task=model_task)
+    if is_planning:
         if adapter_error:
             plan_answer = (
                 "A helyi modell nem elérhető. Kérlek indítsd el az Ollama szolgáltatást, majd próbáld újra."
@@ -421,6 +423,7 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
         return rendered, language_code, source_lines, "planning_structured"
 
     system_prompt = ui.build_system_prompt()
+    drafter_pack = ui.build_drafter_context_pack(message, language_code, history_turns, pks_rows, evidence_rows)
     task_prompt = ui.build_task_prompt(
         user_text=message,
         connectivity="OFFLINE",
@@ -429,6 +432,7 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
             "recent_history": [{"role": (x.get("role") or ""), "content": (x.get("content") or "")[:220]} for x in history_turns[-6:]],
             "pks_approved": ui.summarize_pks_for_model(pks_rows, limit=4),
             "local_evidence_top": ui.summarize_evidence_for_model(evidence_rows, limit=4),
+            "drafter_pack": drafter_pack,
         },
     )
     task_prompt += (
@@ -564,7 +568,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
     }
     user_id = ui.insert_interaction("user", message, meta)
     assistant_message, language_code, source_lines, gen_path = _generate_reply(message, conversation_id, user_id)
-    model_adapter, _adapter_err = ui.select_chat_model_adapter()
+    model_adapter, _adapter_err = ui.select_chat_model_adapter(task="plan_write" if ui.is_daily_planning_request(message) else "reply_write")
     assistant_id = ui.insert_interaction(
         "assistant",
         assistant_message,

@@ -20,9 +20,9 @@ Last updated: 2026-02-27
   - new service: `api/app.py`
   - endpoints: `/v1/health`, `/v1/agent/respond`, `/v1/agent/feedback`, `/v1/ingest/event`, `/v1/search`
   - token auth for POST via `X-Hatori-Token` and `HATORI_API_TOKEN`
-  - API port reserved: `8094` and recorded in `/Users/moldovancsaba/Projects/_GENERAL_/ports.md`
+  - API port reserved: `23572` and recorded in `/Users/moldovancsaba/Projects/_GENERAL_/ports.md`
 - Make target:
-  - `make run-api` (binds `127.0.0.1`, default `API_PORT=8094`)
+  - `make run-api` (binds `127.0.0.1`, default `API_PORT=23572`)
 - Golden tests:
   - total now `89` cases
   - includes API tests `test_92`..`test_97`
@@ -54,7 +54,7 @@ Mission: stabilize API response quality for `{reply}` integration while preservi
 
 Hard requirements:
 1) Keep API contract and auth unchanged (`/v1/*`, `X-Hatori-Token`, `HATORI_API_TOKEN`).
-2) Keep localhost-only binding and port separation (`UI 8093`, `API 8094`).
+2) Keep localhost-only binding and port separation (`UI 23571`, `API 23572`).
 3) Do not regress leakage rails (no UUID, emb:, artefact_id, User request echo, internal scaffolding).
 4) Keep `make test` and `planning_check.sh` green with no skipped tests.
 
@@ -68,7 +68,7 @@ Implementation focus:
 Verification to run:
 - make test
 - ./tools/scripts/planning_check.sh
-- curl health/respond/feedback/search proofs on :8094
+- curl health/respond/feedback/search proofs on :23572
 
 Deliverables:
 - PR URL + green CI URL

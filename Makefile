@@ -32,7 +32,7 @@ run-ui-hatori:
 
 .PHONY: run-api
 run-api:
-	@API_PORT_VAL=$${API_PORT:-8094}; \
+	@API_PORT_VAL=$${API_PORT:-23572}; \
 	HOST=$${HATORI_API_BIND:-127.0.0.1}; \
 	if [ "$$HOST" != "127.0.0.1" ] && [ "$$HOST" != "localhost" ] && [ "$$HOST" != "::1" ] && [ -z "$${HATORI_API_ALLOW_CIDRS:-}" ]; then \
 	  echo "Refusing non-loopback bind without HATORI_API_ALLOW_CIDRS"; \
@@ -44,7 +44,7 @@ run-api:
 run:
 	@if command -v colima >/dev/null 2>&1; then colima start >/dev/null 2>&1 || true; docker context use colima >/dev/null 2>&1 || true; fi
 	$(MAKE) up
-	@API_PORT=$${API_PORT:-8094}; \
+	@API_PORT=$${API_PORT:-23572}; \
 	( $(MAKE) run-api >/tmp/hatori-run-api.log 2>&1 & ); \
 	sleep 1; \
 	$(MAKE) run-ui-hatori
@@ -79,8 +79,8 @@ uninstall-service:
 .PHONY: service-status
 service-status:
 	@launchctl list | grep com.hatori || echo "com.hatori not loaded"
-	@curl -fsS "http://127.0.0.1:$${API_PORT:-8094}/v1/health" >/dev/null 2>&1 && echo "API health: ok" || echo "API health: unavailable"
-	@curl -fsS "http://127.0.0.1:$${UI_PORT:-8093}/chat" >/dev/null 2>&1 && echo "UI health: ok" || echo "UI health: unavailable"
+	@curl -fsS "http://127.0.0.1:$${API_PORT:-23572}/v1/health" >/dev/null 2>&1 && echo "API health: ok" || echo "API health: unavailable"
+	@curl -fsS "http://127.0.0.1:$${UI_PORT:-23571}/chat" >/dev/null 2>&1 && echo "UI health: ok" || echo "UI health: unavailable"
 
 .PHONY: service-logs
 service-logs:
@@ -112,3 +112,19 @@ up-ci:
 .PHONY: down-ci
 down-ci:
 	@docker rm -f hatori-pg >/dev/null 2>&1 || true
+
+.PHONY: bootstrap
+bootstrap:
+	./tools/scripts/hatori_bootstrap.sh
+
+.PHONY: models-pull
+models-pull:
+	./tools/scripts/hatori_models_pull.sh
+
+.PHONY: doctor
+doctor:
+	./tools/scripts/hatori_doctor.sh
+
+.PHONY: integration-acceptance
+integration-acceptance:
+	./tools/scripts/integration_acceptance.sh

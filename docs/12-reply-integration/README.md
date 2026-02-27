@@ -1,47 +1,77 @@
-# Reply <-> {hatori} Integration
+# Integrating External Apps with {hatori}
+
+This guide is for any product/team/service integrating with `{hatori}` API (not only `{reply}`).
 
 Canonical API contract:
 - `docs/10-api-contracts/hatori-api-v1.md`
 
-## End-to-end loop
+## Integration Loop (Required)
 
-1. Ingest message/context into {hatori}
+1. Ingest message/context
 - `POST /v1/ingest/event`
-- required: `external_event_id`
+- required: `external_event_id` (idempotency)
 
-2. Ask {hatori} for a reply
+2. Request response
 - `POST /v1/agent/respond`
-- returns `assistant_message`, `assistant_interaction_id`
+- required: `conversation_id`, `message_id`, `message`
+- returns `assistant_message` + `assistant_interaction_id`
 
-3. Report what was actually sent
+3. Report real send outcome
 - `POST /v1/agent/outcome`
+- required: `external_outcome_id` (idempotency)
 - `sent_as_is` -> positive signal
-- `edited_then_sent` -> negative signal with `original_text`, `final_sent_text`, `diff` (unified diff)
+- `edited_then_sent` -> negative signal + correction target
 
-## Idempotency
+For `edited_then_sent`, send:
+- `original_text`
+- `final_sent_text`
+- `diff` (unified diff format)
 
-- Ingest: `external_event_id` must be stable per upstream event.
-- Outcome: `external_outcome_id` must be stable per delivery outcome.
-- Replays return `duplicate=true` and do not create new rows.
+## Idempotency Rules (Non-negotiable)
 
-## Error handling
+- Ingest idempotency key: `external_event_id`
+- Outcome idempotency key: `external_outcome_id`
+- Retries must reuse the same key.
+- Server replay behavior must return `duplicate=true` and avoid duplicate writes.
 
-- `401 unauthorized`: missing/invalid `X-Hatori-Token`.
-- `400`: request validation error.
-- `413`: ingest payload too large for raw ingest (`/v1/ingest/event`), use upload endpoint.
-- `429`: token-scoped rate limit exceeded; retry with backoff.
-- `5xx`: local runtime dependency error; retry with backoff.
+## Error Handling
+
+- `401`: missing/invalid `X-Hatori-Token`
+- `400`: validation failure
+- `413`: ingest payload too large for raw ingest (switch to upload)
+- `429`: rate limited (retry with backoff)
+- `5xx`: temporary local dependency failure (retry with backoff)
 
 ## Security
 
-- Use `HATORI_API_TOKEN` from local env file (`~/.config/hatori/hatori.env`).
-- Default base URL is localhost (`http://127.0.0.1:8094`).
-- For multi-machine use, put API behind VPN/reverse proxy later; keep core service localhost by default.
+- Token source: `~/.config/hatori/hatori.env`
+- Header: `X-Hatori-Token`
+- Default local API URL: `http://127.0.0.1:23572`
+- Keep `{hatori}` localhost-only by default.
 
-## Quick flow
+## Acceptance Gate for Integrator Teams
 
-```text
-reply inbound -> /v1/ingest/event
-reply ask -> /v1/agent/respond
-human send decision -> /v1/agent/outcome
+Run this before production rollout:
+
+```bash
+make integration-acceptance
 ```
+
+This validates end-to-end:
+- health endpoint reachable
+- ingest idempotency (`duplicate=true` on replay)
+- respond returns `assistant_interaction_id` + `assistant_message`
+- outcome `sent_as_is` idempotency
+- outcome `edited_then_sent` strict validation
+- outcome `edited_then_sent` with unified diff + idempotency
+- unauthorized write returns `401`
+
+## Channel Expansion Notes
+
+For each new channel (email/whatsapp/etc), keep the same contract:
+- ingest -> respond -> outcome
+- stable idempotency keys
+- unified diff on edits
+
+Recommended for large content/attachments:
+- use `POST /v1/artefacts/upload` instead of large raw ingest payloads.
