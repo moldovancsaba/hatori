@@ -24,6 +24,10 @@ run-ui:
 run-ui-hatori:
 	. .venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $${PORT:-8093}
 
+.PHONY: run-api
+run-api:
+	. .venv/bin/activate && HATORI_API_TOKEN=$${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host 127.0.0.1 --port $${API_PORT:-8094}
+
 .PHONY: up
 up:
 	@docker ps -a --format "{{.Names}}" | grep -qx hatori-pg && docker start hatori-pg || docker run -d --name hatori-pg -e POSTGRES_PASSWORD=hatori -e POSTGRES_USER=hatori -e POSTGRES_DB=hatori -p 5432:5432 pgvector/pgvector:pg16

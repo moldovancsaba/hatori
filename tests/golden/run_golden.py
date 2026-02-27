@@ -19,6 +19,7 @@ from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
 try:
     from fastapi.testclient import TestClient
+    from api.app import app as api_app
     from ui.app import app as ui_app
 except Exception as exc:
     raise RuntimeError(
@@ -94,6 +95,10 @@ def ingest_fixture(path: Path) -> dict:
 
 def ui_client():
     return TestClient(ui_app)
+
+
+def api_client():
+    return TestClient(api_app)
 
 
 def test_01_ask_json_shape() -> None:
@@ -1114,6 +1119,182 @@ def test_91_planning_structured_json_path_used() -> None:
     assert_true(path == "planning_structured", "planning chat should use structured JSON generation path")
 
 
+def test_92_api_health_works() -> None:
+    client = api_client()
+    resp = client.get("/v1/health")
+    assert_true(resp.status_code == 200, "GET /v1/health should return 200")
+    out = resp.json()
+    assert_true(out.get("status") == "ok", "health status must be ok")
+    assert_true("version" in out and "db" in out and "api_port" in out, "health payload missing required fields")
+    assert_true(out.get("api_port") == 8094 and out.get("ui_port") == 8093, "health ports should be fixed values")
+
+
+def test_93_api_respond_requires_token_401() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        resp = client.post(
+            "/v1/agent/respond",
+            json={"conversation_id": "reply:test-93", "message_id": "reply:m93", "sender_id": "reply:u93", "message": "hello"},
+        )
+        assert_true(resp.status_code == 401, "POST /v1/agent/respond should require token")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_94_api_respond_creates_two_interactions_linked() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        cid = "reply:test-94"
+        resp = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "conversation_id": cid,
+                "message_id": "reply:m94",
+                "sender_id": "reply:u94",
+                "message": "Szia, kérlek készíts rövid napi tervet.",
+                "metadata": {"platform": "imessage", "channel": "sms"},
+            },
+        )
+        assert_true(resp.status_code == 200, "POST /v1/agent/respond should return 200")
+        out = resp.json()
+        assert_true(out.get("conversation_id") == cid, "response should preserve conversation_id")
+        user_id = out.get("user_interaction_id", "")
+        assistant_id = out.get("assistant_interaction_id", "")
+        assert_true(bool(user_id) and bool(assistant_id), "respond should return created interaction ids")
+        linked = db_scalar(
+            "SELECT count(*) FROM interaction_events "
+            f"WHERE id='{assistant_id}' AND COALESCE(metadata->>'related_user_interaction_id','')='{user_id}';"
+        )
+        assert_true(int(linked) == 1, "assistant interaction must link to user interaction id")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_95_api_feedback_creates_learning_event_linked() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        respond = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "conversation_id": "reply:test-95",
+                "message_id": "reply:m95",
+                "sender_id": "reply:u95",
+                "message": "hello from api feedback path",
+            },
+        )
+        assistant_id = respond.json()["assistant_interaction_id"]
+        before = int(db_scalar("SELECT count(*) FROM learning_events;"))
+        fb = client.post(
+            "/v1/agent/feedback",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "assistant_interaction_id": assistant_id,
+                "vote": "down",
+                "category": "Relevance",
+                "comment": "not focused",
+                "external_request_id": "reply:fb95",
+            },
+        )
+        assert_true(fb.status_code == 200, "feedback endpoint should return 200")
+        lid = fb.json().get("learning_event_id", "")
+        assert_true(bool(lid), "feedback should return learning_event_id")
+        after = int(db_scalar("SELECT count(*) FROM learning_events;"))
+        assert_true(after == before + 1, "feedback should create one learning_event row")
+        linked = db_scalar(
+            "SELECT count(*) FROM learning_events "
+            f"WHERE id='{lid}' AND related_interaction_id='{assistant_id}';"
+        )
+        assert_true(int(linked) == 1, "learning event should link to assistant interaction")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_96_api_ingest_event_idempotent() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        event_id = "reply:event-96"
+        one = client.post(
+            "/v1/ingest/event",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "event_id": event_id,
+                "kind": "imessage",
+                "conversation_id": "reply:conv-96",
+                "sender_id": "reply:u96",
+                "content": "first content",
+                "metadata": {"platform": "imessage"},
+            },
+        )
+        two = client.post(
+            "/v1/ingest/event",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "event_id": event_id,
+                "kind": "imessage",
+                "conversation_id": "reply:conv-96",
+                "sender_id": "reply:u96",
+                "content": "first content",
+                "metadata": {"platform": "imessage"},
+            },
+        )
+        assert_true(one.status_code == 200 and two.status_code == 200, "ingest endpoint should return 200")
+        iid1 = one.json().get("interaction_id")
+        iid2 = two.json().get("interaction_id")
+        assert_true(iid1 == iid2, "idempotent ingest should return same interaction_id for duplicate event_id")
+        cnt = db_scalar(
+            "SELECT count(*) FROM interaction_events "
+            f"WHERE COALESCE(metadata->>'event_id','')='{event_id}' AND COALESCE(metadata->>'source','')='reply';"
+        )
+        assert_true(int(cnt) == 1, "idempotent ingest must not create duplicate rows")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_97_api_search_returns_human_readable_only() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        resp = client.get(
+            "/v1/search",
+            params={"q": "NightlyWarmupChecklistToken", "k": 5},
+            headers={"X-Hatori-Token": "golden-token"},
+        )
+        assert_true(resp.status_code == 200, "search endpoint should return 200")
+        rows = resp.json()
+        txt = json.dumps(rows, ensure_ascii=False).lower()
+        assert_true("emb:" not in txt and "artefact_id" not in txt, "search output should not include internal IDs")
+        uuid_any_re = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.IGNORECASE)
+        assert_true(uuid_any_re.search(txt) is None, "search output should not include UUID values")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1199,6 +1380,12 @@ def collect_tests() -> list:
         test_89_planning_today_returns_real_plan_hu,
         test_90_planning_today_never_refusal_fallback,
         test_91_planning_structured_json_path_used,
+        test_92_api_health_works,
+        test_93_api_respond_requires_token_401,
+        test_94_api_respond_creates_two_interactions_linked,
+        test_95_api_feedback_creates_learning_event_linked,
+        test_96_api_ingest_event_idempotent,
+        test_97_api_search_returns_human_readable_only,
     ]
 
 
@@ -1208,7 +1395,9 @@ def main() -> None:
     args, _unknown = parser.parse_known_args()
 
     old_model = os.environ.get("HATORI_MODEL")
+    old_api_token = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_MODEL"] = "none"
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
         run(["./tools/scripts/db_reset.sh"], expect_ok=True)
         ingest_fixture(FIXTURE)
@@ -1234,6 +1423,10 @@ def main() -> None:
             os.environ.pop("HATORI_MODEL", None)
         else:
             os.environ["HATORI_MODEL"] = old_model
+        if old_api_token is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old_api_token
 
 
 if __name__ == "__main__":
