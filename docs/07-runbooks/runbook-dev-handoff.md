@@ -2,6 +2,16 @@
 
 This runbook is for onboarding a developer/developer-agent to the Hatori repo.
 
+## Current handover snapshot
+- Active branch: `sprint-05-daily-planning-golden`
+- Head commit: `c86928b`
+- Open PR: https://github.com/moldovancsaba/reply-hatori/pull/4
+- Latest CI run: https://github.com/moldovancsaba/reply-hatori/actions/runs/22484817404
+- Dedicated ports:
+  - UI: `8093` (localhost)
+  - API: `8094` (localhost)
+- Continuation notes: `docs/07-runbooks/braindump-next-agent.md`
+
 ## Repo
 - Path (local): `/Users/moldovancsaba/Projects/reply-hatori`
 
@@ -64,7 +74,7 @@ make up
 Expected final lines:
 - `PASS: self_test`
 - `PASS: dod_gate`
-- `PASS: golden tests (50 cases)`
+- `PASS: golden tests (89 cases)`
 - `UI app present: True`
 - `OK: planning check complete`
 
@@ -152,3 +162,42 @@ All changes must preserve:
 - `make test`
 - `make run-ui`
 - `./tools/scripts/planning_check.sh`
+
+## Next-agent continuation prompt
+Use this prompt as-is for the next developer agent:
+
+```text
+You are a developer agent working on repo:
+  /Users/moldovancsaba/Projects/reply-hatori
+Remote:
+  https://github.com/moldovancsaba/reply-hatori.git
+Branch to continue:
+  sprint-05-daily-planning-golden
+Baseline commit:
+  c86928b
+
+Mission: stabilize API response quality for `{reply}` integration while preserving governance and leakage protections.
+
+Hard requirements:
+1) Keep API contract and auth unchanged (`/v1/*`, `X-Hatori-Token`, `HATORI_API_TOKEN`).
+2) Keep localhost-only binding and port separation (`UI 8093`, `API 8094`).
+3) Do not regress leakage rails (no UUID, emb:, artefact_id, User request echo, internal scaffolding).
+4) Keep `make test` and `planning_check.sh` green with no skipped tests.
+
+Implementation focus:
+- Improve `/v1/agent/respond` quality for Hungarian planning/chat:
+  - tighten structured generation for planning and generic chat outputs
+  - ensure next actions are naturally phrased Hungarian checklist items with clear priority
+  - avoid awkward repetitions while keeping offline-safe constraints
+- Add/adjust golden API quality tests as needed.
+
+Verification to run:
+- make test
+- ./tools/scripts/planning_check.sh
+- curl health/respond/feedback/search proofs on :8094
+
+Deliverables:
+- PR URL + green CI URL
+- sample API respond output from DB (clean + useful Hungarian)
+- summary of files changed
+```

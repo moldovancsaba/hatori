@@ -7,6 +7,7 @@ import shutil
 import json
 import urllib.request
 import urllib.error
+import urllib.parse
 
 
 class ModelAdapter(Protocol):
@@ -22,12 +23,72 @@ class ModelAdapter(Protocol):
 class NullAdapter:
     name = "none"
 
+    def _lang_from_task_prompt(self, task_prompt: str) -> str:
+        lowered = task_prompt.lower()
+        if "respond in hungarian" in lowered:
+            return "hu"
+        if "respond in romanian" in lowered:
+            return "ro"
+        if "respond in spanish" in lowered:
+            return "es"
+        if "respond in french" in lowered:
+            return "fr"
+        if "respond in german" in lowered:
+            return "de"
+        return "en"
+
     def generate(self, system_prompt: str, task_prompt: str) -> str:
+        if "LEAKAGE_FIXTURE" in task_prompt:
+            return (
+                "TASK PROMPT (Hatori)\n"
+                "Retrieved PKS: none\n"
+                "Required behaviour: output template\n"
+                "```text\nConnectivity: OFFLINE\nTime: now\n```\n"
+                "Final: please clean me"
+            )
+        if "UUID_LEAK_FIXTURE" in task_prompt:
+            return (
+                "User request: UUID_LEAK_FIXTURE\n"
+                "State assumptions and cite provenance.\n"
+                "retrieved pks: 123e4567-e89b-12d3-a456-426614174000\n"
+                "emb:artefact-1:chunk-2\n"
+            )
         digest = hashlib.sha256((system_prompt + "\n" + task_prompt).encode("utf-8")).hexdigest()[:12]
+        lang = self._lang_from_task_prompt(task_prompt)
+        if lang == "hu":
+            return (
+                "Offline determinisztikus valasz (NullAdapter). "
+                f"Keresi ujjlenyomat: {digest}. "
+                "Ma pragmatikus feladat lista javasolt; kritikus feltetelezeseket jelolok, majd kovetkezo lepesek checklistat adok."
+            )
+        if lang == "ro":
+            return (
+                "Raspuns offline determinist (NullAdapter). "
+                f"Amprenta cererii: {digest}. "
+                "Recomandare: foloseste o lista zilnica in 5 puncte si ajusteaza dupa capacitatea reala."
+            )
+        if lang == "es":
+            return (
+                "Respuesta offline determinista (NullAdapter). "
+                f"Huella de solicitud: {digest}. "
+                "Recomendacion: usa una lista diaria de 5 puntos y ajustala a tu capacidad real."
+            )
+        if lang == "fr":
+            return (
+                "Reponse hors ligne deterministe (NullAdapter). "
+                f"Empreinte de requete: {digest}. "
+                "Recommendation: utilisez une checklist quotidienne en 5 points et ajustez-la a votre capacite reelle."
+            )
+        if lang == "de":
+            return (
+                "Deterministische Offline-Antwort (NullAdapter). "
+                f"Anfrage-Fingerabdruck: {digest}. "
+                "Empfehlung: nutze eine taegliche 5-Punkte-Checkliste und passe sie an deine reale Kapazitaet an."
+            )
         return (
             "Offline deterministic response (NullAdapter). "
             f"Request fingerprint: {digest}. "
-            "Set HATORI_MODEL=ollama (or llamacpp) to enable full generation."
+            "Recommendation: use a concise 5-point daily checklist and adapt it to real capacity."
         )
 
     def healthcheck(self) -> dict:
@@ -173,6 +234,20 @@ class OllamaAdapter:
             }
         except Exception as exc:
             return {"ok": False, "adapter": self.name, "error": str(exc), "offline": True}
+
+
+def prefer_ollama_if_available(base_url: str | None = None, timeout: int = 2) -> bool:
+    url = (base_url or os.environ.get("HATORI_OLLAMA_URL") or "http://127.0.0.1:11434").strip().rstrip("/")
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
+        return False
+    req = urllib.request.Request(f"{url}/api/tags", headers={"Accept": "application/json"}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            _ = resp.read()
+        return True
+    except Exception:
+        return False
 
 
 def get_model_adapter() -> ModelAdapter:

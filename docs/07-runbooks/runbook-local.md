@@ -131,3 +131,82 @@ Expected behavior:
   - Verify `brew services start ollama`.
   - Verify local service responds on `http://127.0.0.1:11434/api/tags`.
   - Verify `HATORI_OLLAMA_MODEL` exists locally (`ollama list`).
+
+## API outcome loop (`{reply}` -> Hatori)
+
+Load token:
+
+```bash
+source ~/.config/hatori/api.env
+```
+
+Ask Hatori:
+
+```bash
+RESP=$(curl -s -X POST http://127.0.0.1:8094/v1/agent/respond \
+  -H "Content-Type: application/json" \
+  -H "X-Hatori-Token: $HATORI_API_TOKEN" \
+  -d '{
+    "conversation_id":"reply:thread-123",
+    "message_id":"reply:msg-001",
+    "sender_id":"reply:user-42",
+    "message":"Szia! Tudsz segíteni egy rövid válasszal?",
+    "metadata":{"platform":"imessage"}
+  }')
+AID=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['assistant_interaction_id'])")
+ORIG=$(echo "$RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['assistant_message'])")
+```
+
+Outcome `sent_as_is`:
+
+```bash
+curl -s -X POST http://127.0.0.1:8094/v1/agent/outcome \
+  -H "Content-Type: application/json" \
+  -H "X-Hatori-Token: $HATORI_API_TOKEN" \
+  -d "{
+    \"external_outcome_id\":\"reply:outcome-001\",
+    \"assistant_interaction_id\":\"$AID\",
+    \"conversation_id\":\"reply:thread-123\",
+    \"platform\":\"imessage\",
+    \"status\":\"sent_as_is\"
+  }"
+```
+
+Outcome `edited_then_sent` with unified diff:
+
+```bash
+FINAL="Szia! Persze — miben segíthetek pontosan?"
+DIFF=$(python3 - <<'PY'
+import difflib, os
+orig = os.environ["ORIG"]
+final = os.environ["FINAL"]
+u = difflib.unified_diff(orig.splitlines(True), final.splitlines(True), fromfile="original", tofile="final")
+print("".join(u))
+PY
+)
+
+python3 - <<'PY'
+import json, os, subprocess
+payload = {
+  "external_outcome_id":"reply:outcome-002",
+  "assistant_interaction_id":os.environ["AID"],
+  "conversation_id":"reply:thread-123",
+  "platform":"imessage",
+  "status":"edited_then_sent",
+  "original_text":os.environ["ORIG"],
+  "final_sent_text":os.environ["FINAL"],
+  "diff":os.environ["DIFF"],
+  "edit_reason":"shorter + more natural"
+}
+subprocess.run([
+  "curl","-s","-X","POST","http://127.0.0.1:8094/v1/agent/outcome",
+  "-H","Content-Type: application/json",
+  "-H",f"X-Hatori-Token: {os.environ['HATORI_API_TOKEN']}",
+  "-d",json.dumps(payload, ensure_ascii=False),
+], check=True)
+PY
+```
+
+Idempotency behavior:
+- `external_outcome_id` is unique.
+- Repeating the same payload returns the existing IDs and does not create duplicate `delivery_events` / `learning_events`.

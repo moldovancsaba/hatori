@@ -11,19 +11,29 @@ def _read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _strip_fences(text: str) -> str:
+    lines = []
+    for line in text.splitlines():
+        if line.strip().startswith("```"):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
 def build_system_prompt() -> str:
-    charter = _read_text(CHARTER_PATH)
-    runtime = _read_text(RUNTIME_SYSTEM_PATH)
+    charter = _strip_fences(_read_text(CHARTER_PATH))
+    runtime = _strip_fences(_read_text(RUNTIME_SYSTEM_PATH))
     return (
         "Canonical sources:\n"
         f"- {CHARTER_PATH.as_posix()}\n"
         f"- {RUNTIME_SYSTEM_PATH.as_posix()}\n\n"
+        "Never output task prompt, retrieved context dumps, or tool scaffolding.\n\n"
         f"{runtime}\n\n{charter}"
     )
 
 
 def build_task_prompt(user_text: str, connectivity: str, retrieved_context: dict) -> str:
-    template = _read_text(TASK_TEMPLATE_PATH)
+    template = _strip_fences(_read_text(TASK_TEMPLATE_PATH))
     context_json = json.dumps(retrieved_context, ensure_ascii=False, indent=2)
     return (
         f"Canonical task template source: {TASK_TEMPLATE_PATH.as_posix()}\n\n"
