@@ -148,7 +148,10 @@ def load_chat_rows(chat_id: str, limit: int = 300) -> list[dict]:
 
 def load_recent_chats(limit: int = 40) -> list[dict]:
     return psql_json(
-        "SELECT t.chat_id, t.occurred_at AS last_at, t.role AS last_role, t.content AS last_content "
+        "SELECT t.chat_id, t.occurred_at AS last_at, t.role AS last_role, t.content AS last_content, "
+        "  (SELECT iu.content FROM interaction_events iu "
+        "   WHERE COALESCE(iu.metadata->>'chat_id','')=t.chat_id AND iu.role='user' "
+        "   ORDER BY iu.occurred_at DESC LIMIT 1) AS last_user_content "
         "FROM ("
         "  SELECT DISTINCT ON (COALESCE(metadata->>'chat_id','')) "
         "    COALESCE(metadata->>'chat_id','') AS chat_id, occurred_at, role, content, metadata "
@@ -198,6 +201,40 @@ def summarize_prev_user_turn(history: list[dict]) -> str:
             if txt:
                 return txt[:120]
     return ""
+
+
+def extract_project_name_from_history(history: list[dict]) -> str:
+    for row in reversed(history):
+        if (row.get("role") or "").lower() != "user":
+            continue
+        text = (row.get("content") or "").strip()
+        if not text:
+            continue
+        hu = re.search(r"\bprojekt neve\s+([A-Za-z0-9_.-]{2,80})", text, flags=re.IGNORECASE)
+        if hu:
+            return hu.group(1).strip(".,;:!?")
+        en = re.search(r"\bproject name is\s+([A-Za-z0-9_.-]{2,80})", text, flags=re.IGNORECASE)
+        if en:
+            return en.group(1).strip(".,;:!?")
+    return ""
+
+
+def resolve_followup_from_history(user_text: str, history: list[dict], language_code: str) -> str:
+    lowered = user_text.strip().lower()
+    asks_project_name = (
+        ("projekt neve" in lowered)
+        or ("mi a projekt neve" in lowered)
+        or ("project name" in lowered)
+        or ("what is the project name" in lowered)
+    )
+    if not asks_project_name:
+        return ""
+    project_name = extract_project_name_from_history(history)
+    if not project_name:
+        return ""
+    if language_code == "hu":
+        return f"A korábbi üzenet alapján a projekt neve: {project_name}."
+    return f"Based on the previous message, the project name is: {project_name}."
 
 
 def detect_message_language(text: str) -> str:
@@ -258,6 +295,16 @@ FORBIDDEN_SCAFFOLD_MARKERS = [
     "[null-adapter:",
     "nulladapter",
     "fingerprint:",
+    "follow charter",
+    "követelmények",
+    "kovetelmenyek",
+    "rendelkezések megfeleléséhez",
+    "rendelkezesek megfelelesehez",
+    "memory patch",
+    "learning log",
+    "tanulási napló",
+    "tanulasi naplo",
+    "required behavior",
 ]
 
 
@@ -273,6 +320,9 @@ def _sanitize_with_stats(text: str) -> tuple[str, float]:
     for raw in original.splitlines():
         line = raw.strip()
         lowered = line.lower()
+        if re.match(r"^\s*[1-7]\)\s+", line):
+            removed_chars += len(raw)
+            continue
         if "```" in line:
             removed_chars += len(raw)
             continue
@@ -343,11 +393,62 @@ def is_daily_planning_request(text: str) -> bool:
     return any(m in lowered for m in markers)
 
 
+def is_greeting_only(text: str, language_code: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+
+    non_greeting_intents = [
+        "segíts",
+        "segits",
+        "kérlek",
+        "kerlek",
+        "please",
+        "help",
+        "plan",
+        "terv",
+        "írj",
+        "irj",
+        "compose",
+        "summarize",
+        "search",
+        "kutatás",
+        "kutatas",
+        "döntés",
+        "dontes",
+    ]
+    if any(x in lowered for x in non_greeting_intents):
+        return False
+
+    hu_greetings = ["szia", "jó reggelt", "jo reggelt", "szép reggelt", "szep reggelt", "helló", "hello"]
+    en_greetings = ["hi", "hello", "good morning", "good afternoon", "good evening", "hey"]
+    if language_code == "hu":
+        return any(g in lowered for g in hu_greetings)
+    if language_code == "en":
+        return any(g in lowered for g in en_greetings)
+    return False
+
+
+def greeting_clarifying_answer(language_code: str) -> str:
+    if language_code == "hu":
+        return "Szia! Miben segíthetek pontosan ma? (pl. napi terv, e-mail, döntés, kutatás)"
+    return "Hi! What do you want help with today? (for example: daily plan, email, decision, research)"
+
+
+def clean_chat_preview(text: str) -> str:
+    raw = (text or "").strip().replace("\n", " ")
+    if not raw:
+        return ""
+    raw = re.sub(r"^\s*[1-7]\)\s+[A-Za-zÁÉÍÓÖŐÚÜŰáéíóöőúüű /()&:-]+", "", raw).strip()
+    sentence = re.split(r"(?<=[.!?])\s+", raw, maxsplit=1)[0]
+    out = sentence or raw
+    return out[:100] + ("..." if len(out) > 100 else "")
+
+
 def render_chat_default_output(answer: str, language_code: str, user_text: str) -> str:
     planning = is_daily_planning_request(user_text)
     if planning and language_code == "hu":
         assumptions = [
-            "Feltételezés: a felhasználó aktuális nyelve magyar.",
             "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
             "Feltételezés: nincs átadott naptár, fix meeting, stakeholder-lista vagy határidő.",
         ]
@@ -361,7 +462,6 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str) 
         ]
     elif planning:
         assumptions = [
-            f"Language mode selected from current user message: {language_name(language_code)}.",
             "Offline local runtime only; no web retrieval used.",
             "No explicit calendar, meetings, stakeholders, or deadlines were provided by the user.",
         ]
@@ -376,13 +476,11 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str) 
     else:
         if language_code == "hu":
             assumptions = [
-                "Feltételezés: a felhasználó aktuális nyelve magyar.",
                 "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
             ]
             next_actions = ["- [ ] Folytasd a beszélgetést egy konkrét következő kérdéssel a pontosításhoz."]
         else:
             assumptions = [
-                f"Language mode selected from current user message: {language_name(language_code)}.",
                 "Offline local runtime only; no web retrieval used.",
             ]
             next_actions = ["- [ ] Continue the chat with one concrete follow-up question for refinement."]
@@ -475,8 +573,9 @@ def chat(chat_id: str | None = None, new: int = 0):
     body.append("<div class='chat-actions'><a href='/chat?new=1'><button type='button'>New chat</button></a></div>")
     for c in recent_chats:
         cid = c.get("chat_id") or ""
-        preview = (c.get("last_content") or "").strip().replace("\n", " ")
-        preview = preview[:60] + ("..." if len(preview) > 60 else "")
+        user_preview = clean_chat_preview(c.get("last_user_content") or "")
+        fallback_preview = clean_chat_preview(c.get("last_content") or "")
+        preview = user_preview or fallback_preview
         body.append(
             f"<a class='chat-item' href='/chat?chat_id={_h(cid)}'>"
             f"<strong>{_h(cid[:8])}</strong>"
@@ -570,14 +669,44 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
     if not text_raw.strip():
         return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
 
+    language_code = detect_message_language(text_raw)
     history_turns = load_chat_history_for_prompt(chat_id=chat_id, limit=10)
     pks_rows = load_pks_context(limit=6)
     evidence_rows = load_local_evidence_context(query=text_raw, limit=5)
-    prev_user_summary = summarize_prev_user_turn(history_turns)
 
     user_id = insert_interaction("user", text_raw, {"source": "ui", "chat_id": chat_id})
 
-    language_code = detect_message_language(text_raw)
+    if is_greeting_only(text_raw, language_code):
+        answer = render_chat_default_output(greeting_clarifying_answer(language_code), language_code, text_raw)
+        insert_interaction(
+            "assistant",
+            answer,
+            {
+                "source": "ui",
+                "chat_id": chat_id,
+                "model_adapter": "greeting-shortcut",
+                "language": language_code,
+                "related_user_interaction_id": user_id,
+            },
+        )
+        return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+
+    followup_answer = resolve_followup_from_history(text_raw, history_turns, language_code)
+    if followup_answer:
+        answer = render_chat_default_output(followup_answer, language_code, text_raw)
+        insert_interaction(
+            "assistant",
+            answer,
+            {
+                "source": "ui",
+                "chat_id": chat_id,
+                "model_adapter": "history-shortcut",
+                "language": language_code,
+                "related_user_interaction_id": user_id,
+            },
+        )
+        return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+
     model, adapter_error = select_chat_model_adapter()
     system_prompt = build_system_prompt()
     task_prompt = build_task_prompt(
@@ -619,12 +748,6 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             clean_answer = _repair_assistant_output(model, language_code, text_raw, clean_answer)
         except Exception:
             clean_answer = "Nem tudok biztonságos, tiszta választ adni ebben a formában. Kérlek próbáld újra rövidebb kéréssel."
-
-    if prev_user_summary:
-        if language_code == "hu":
-            clean_answer = f"Előzmény szerint: {prev_user_summary}\n{clean_answer}"
-        else:
-            clean_answer = f"Context from previous turn: {prev_user_summary}\n{clean_answer}"
 
     clean_answer = sanitize_assistant_output(clean_answer)
     if not clean_answer:

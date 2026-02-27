@@ -916,7 +916,8 @@ def test_75_chat_new_chat_id_default_no_seed_messages() -> None:
 
     page = client.get(location)
     assert_true(page.status_code == 200, "redirected chat page should render")
-    assert_true(old_marker not in page.text, "new chat must not show messages from older chat threads")
+    main_section = page.text.split("<section class='chat-main'>", 1)[-1]
+    assert_true(old_marker not in main_section, "new chat main timeline must not show messages from older chat threads")
 
 
 def test_76_chat_filters_by_chat_id_only() -> None:
@@ -930,13 +931,15 @@ def test_76_chat_filters_by_chat_id_only() -> None:
 
     page_a = client.get("/chat", params={"chat_id": chat_a})
     assert_true(page_a.status_code == 200, "chat A page should render")
-    assert_true(marker_a in page_a.text, "chat A page should include chat A messages")
-    assert_true(marker_b not in page_a.text, "chat A page must exclude chat B messages")
+    main_a = page_a.text.split("<section class='chat-main'>", 1)[-1]
+    assert_true(marker_a in main_a, "chat A page should include chat A messages")
+    assert_true(marker_b not in main_a, "chat A main timeline must exclude chat B messages")
 
     page_b = client.get("/chat", params={"chat_id": chat_b})
     assert_true(page_b.status_code == 200, "chat B page should render")
-    assert_true(marker_b in page_b.text, "chat B page should include chat B messages")
-    assert_true(marker_a not in page_b.text, "chat B page must exclude chat A messages")
+    main_b = page_b.text.split("<section class='chat-main'>", 1)[-1]
+    assert_true(marker_b in main_b, "chat B page should include chat B messages")
+    assert_true(marker_a not in main_b, "chat B main timeline must exclude chat A messages")
 
 
 def test_77_chat_enter_send_shift_enter_newline() -> None:
@@ -988,6 +991,66 @@ def test_80_chat_uses_history_for_followup() -> None:
         "ORDER BY occurred_at DESC LIMIT 1;"
     )
     assert_true("Nebula" in out, "follow-up answer should use same-thread history context")
+
+
+def test_81_chat_greeting_only_asks_clarifying_question_hu() -> None:
+    out = _chat_send_and_get_output("golden-chat-81", "Szia, szép reggelt")
+    lowered = out.lower()
+    assert_true("2) válasz / javaslat" in lowered, "Hungarian template label must be present")
+    answer_section = _extract_section(out, 2, 3)
+    assert_true(answer_section.count("?") == 1, "Greeting-only reply should ask exactly one clarifying question")
+    assert_true("miben segíthetek pontosan ma" in answer_section.lower(), "Greeting-only HU reply should ask a clear clarifying question")
+    assert_true("orvosi" not in lowered and "medical" not in lowered, "Greeting-only reply must not invent unrelated topics")
+    forbidden = ["follow charter", "követelmények", "required behaviour", "retrieved pks"]
+    assert_true(not any(m in lowered for m in forbidden), "Greeting-only reply must not leak policy/procedure scaffolding")
+
+
+def test_82_chat_preview_does_not_show_template_headers() -> None:
+    client = ui_client()
+    chat_view = "golden-chat-82-view"
+    chat_preview = "golden-chat-82-preview"
+    preview_message = "SIDEBAR_PREVIEW_82 Kérlek ezt mutasd előnézetben."
+    client.post("/chat/send", data={"chat_id": chat_view, "message": "nézet chat"})
+    client.post("/chat/send", data={"chat_id": chat_preview, "message": preview_message})
+
+    page = client.get("/chat", params={"chat_id": chat_view})
+    assert_true(page.status_code == 200, "chat page should render for preview test")
+    idx = page.text.find("SIDEBAR_PREVIEW_82")
+    assert_true(idx >= 0, "sidebar should include user preview snippet")
+    window = page.text[max(0, idx - 180): idx + 220]
+    assert_true("1) Kapcsolati állapot" not in window and "Connectivity State" not in window, "sidebar preview must not show template section headers")
+
+
+def test_83_chat_no_policy_dump_markers() -> None:
+    out = _chat_send_and_get_output("golden-chat-83", "Szia, szép reggelt")
+    lowered = out.lower()
+    forbidden = [
+        "follow charter",
+        "követelmények",
+        "kovetelmenyek",
+        "required behaviour",
+        "retrieved pks",
+        "active project",
+        "memory patch:",
+    ]
+    assert_true(not any(m in lowered for m in forbidden), "assistant output must not contain internal policy/procedure dump markers")
+
+
+def test_84_utf8_roundtrip_hu_message() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-84"
+    original = "Kérlek segíts, őűáéíóöü"
+    resp = client.post("/chat/send", data={"chat_id": chat_id, "message": original})
+    assert_true(resp.status_code in {200, 303}, "UTF-8 send should succeed")
+    stored = db_scalar(
+        "SELECT content FROM interaction_events "
+        f"WHERE role='user' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assert_true(stored == original, f"UTF-8 roundtrip mismatch: expected={original!r} got={stored!r}")
+    page = client.get("/chat", params={"chat_id": chat_id})
+    assert_true(page.status_code == 200, "chat page should render for UTF-8 verification")
+    assert_true(original in page.text, "Rendered HTML should preserve Hungarian accents without mojibake")
 
 
 def collect_tests() -> list:
@@ -1064,6 +1127,10 @@ def collect_tests() -> list:
         test_78_chat_no_scaffolding_markers,
         test_79_chat_language_mirror_hu_no_english_leak,
         test_80_chat_uses_history_for_followup,
+        test_81_chat_greeting_only_asks_clarifying_question_hu,
+        test_82_chat_preview_does_not_show_template_headers,
+        test_83_chat_no_policy_dump_markers,
+        test_84_utf8_roundtrip_hu_message,
     ]
 
 
