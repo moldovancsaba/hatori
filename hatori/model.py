@@ -46,6 +46,13 @@ class NullAdapter:
                 "```text\nConnectivity: OFFLINE\nTime: now\n```\n"
                 "Final: please clean me"
             )
+        if "UUID_LEAK_FIXTURE" in task_prompt:
+            return (
+                "User request: UUID_LEAK_FIXTURE\n"
+                "State assumptions and cite provenance.\n"
+                "retrieved pks: 123e4567-e89b-12d3-a456-426614174000\n"
+                "emb:artefact-1:chunk-2\n"
+            )
         digest = hashlib.sha256((system_prompt + "\n" + task_prompt).encode("utf-8")).hexdigest()[:12]
         lang = self._lang_from_task_prompt(task_prompt)
         if lang == "hu":

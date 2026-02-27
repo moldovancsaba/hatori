@@ -28,6 +28,7 @@ from hatori.cli import search_runtime
 
 CID = os.environ.get("CID", "hatori-pg")
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
+UUID_ANY_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.IGNORECASE)
 ROOT_DIR = Path(__file__).resolve().parent.parent
 EXPORT_DIR = ROOT_DIR / "artefacts" / "exports"
 UPLOAD_DIR = ROOT_DIR / "artefacts" / "uploads"
@@ -181,7 +182,7 @@ def load_chat_history_for_prompt(chat_id: str, limit: int = 10) -> list[dict]:
 
 def load_pks_context(limit: int = 8) -> list[dict]:
     return psql_json(
-        "SELECT id, module, status, title, body "
+        "SELECT module, status, title, body "
         "FROM pks_records "
         "WHERE status='Approved' "
         "ORDER BY updated_at DESC "
@@ -201,6 +202,72 @@ def summarize_prev_user_turn(history: list[dict]) -> str:
             if txt:
                 return txt[:120]
     return ""
+
+
+def _short_path(path: str) -> str:
+    p = (path or "").strip()
+    if not p:
+        return ""
+    parts = p.split("/")
+    if len(parts) >= 2:
+        return "/".join(parts[-2:])
+    return p
+
+
+def summarize_pks_for_model(rows: list[dict], limit: int = 4) -> list[dict]:
+    out: list[dict] = []
+    for row in rows[: max(0, int(limit))]:
+        out.append(
+            {
+                "title": (row.get("title") or "").strip()[:120],
+                "status": (row.get("status") or "").strip(),
+                "summary": (row.get("body") or "").strip()[:180],
+            }
+        )
+    return out
+
+
+def summarize_evidence_for_model(rows: list[dict], limit: int = 4) -> list[dict]:
+    out: list[dict] = []
+    for row in rows[: max(0, int(limit))]:
+        uri = (row.get("artefact_uri") or "").strip()
+        filename = os.path.basename(uri) if uri else ""
+        out.append(
+            {
+                "filename": filename or _short_path(uri),
+                "provenance": (row.get("provenance") or "").strip(),
+                "excerpt": (row.get("excerpt") or "").strip()[:160],
+            }
+        )
+    return out
+
+
+def build_human_sources_lines(language_code: str, pks_rows: list[dict], evidence_rows: list[dict]) -> list[str]:
+    pks_titles = [r.get("title", "").strip() for r in pks_rows if (r.get("title") or "").strip()]
+    pks_titles = pks_titles[:3]
+    docs: list[str] = []
+    for row in evidence_rows:
+        uri = (row.get("artefact_uri") or "").strip()
+        name = os.path.basename(uri) if uri else ""
+        if name:
+            docs.append(name)
+    docs = docs[:5]
+    lines: list[str] = []
+    if language_code == "hu":
+        if pks_titles:
+            lines.append(f"PKS (Approved): {'; '.join(pks_titles)}")
+        if docs:
+            lines.append(f"Helyi dokumentumok: {'; '.join(docs)}")
+        if not lines:
+            lines.append("Nincs helyi bizonyíték.")
+        return lines
+    if pks_titles:
+        lines.append(f"Approved PKS: {'; '.join(pks_titles)}")
+    if docs:
+        lines.append(f"Local documents: {'; '.join(docs)}")
+    if not lines:
+        lines.append("No local evidence found.")
+    return lines
 
 
 def extract_project_name_from_history(history: list[dict]) -> str:
@@ -307,6 +374,17 @@ FORBIDDEN_SCAFFOLD_MARKERS = [
     "required behavior",
 ]
 
+FORBIDDEN_USER_VISIBLE_MARKERS = [
+    "emb:",
+    "artefact_id",
+    "retrieved pks",
+    "user request:",
+    "state assumptions",
+    "cite provenance",
+    "follow charter",
+    "required behaviour",
+]
+
 
 def sanitize_assistant_output(text: str) -> str:
     sanitized, _removed_ratio = _sanitize_with_stats(text)
@@ -367,6 +445,29 @@ def _repair_assistant_output(model, language_code: str, user_text: str, leaked_t
     if not repaired_sanitized:
         raise RuntimeError("repair produced empty output")
     return repaired_sanitized
+
+
+def _repair_assistant_output_idsafe(model, language_code: str, user_text: str, leaked_text: str) -> str:
+    strict = (
+        f"Rewrite ONLY the final user-facing answer in {language_name(language_code)}.\n"
+        "Do not include any IDs, UUIDs, emb:, metadata, internal notes, or user request echo.\n"
+        "Evidence & Sources must list human-readable titles/filenames only.\n"
+        "Do not include tool scaffolding or instruction bullets.\n"
+        f"User message: {user_text}\n"
+        f"Draft to repair: {leaked_text}\n"
+    )
+    repaired = model.generate(system_prompt="User-visible output repair.", task_prompt=strict).strip()
+    repaired_sanitized = sanitize_assistant_output(repaired)
+    if not repaired_sanitized:
+        raise RuntimeError("id-safe repair produced empty output")
+    return repaired_sanitized
+
+
+def _has_forbidden_user_visible_markers(text: str) -> bool:
+    lowered = (text or "").lower()
+    if UUID_ANY_RE.search(lowered):
+        return True
+    return any(m in lowered for m in FORBIDDEN_USER_VISIBLE_MARKERS)
 
 
 def select_chat_model_adapter():
@@ -445,8 +546,9 @@ def clean_chat_preview(text: str) -> str:
     return out[:100] + ("..." if len(out) > 100 else "")
 
 
-def render_chat_default_output(answer: str, language_code: str, user_text: str) -> str:
+def render_chat_default_output(answer: str, language_code: str, user_text: str, sources: list[str] | None = None) -> str:
     planning = is_daily_planning_request(user_text)
+    source_lines = [s for s in (sources or []) if s.strip()]
     if planning and language_code == "hu":
         assumptions = [
             "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
@@ -485,7 +587,8 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str) 
             ]
             next_actions = ["- [ ] Continue the chat with one concrete follow-up question for refinement."]
     if language_code == "hu":
-        evidence = "- Nincs helyi bizonyíték."
+        evidence_items = source_lines or ["Nincs helyi bizonyíték."]
+        evidence = "\n".join(f"- {x}" for x in evidence_items)
         assumptions_text = "\n".join(f"- {x}" for x in assumptions)
         actions_text = "\n".join(next_actions)
         return (
@@ -507,7 +610,10 @@ def render_chat_default_output(answer: str, language_code: str, user_text: str) 
     payload = {
         "connectivity_state": "OFFLINE",
         "answer": answer,
-        "evidence": [],
+        "evidence": [
+            {"citation": "local", "title": x, "score": "n/a", "excerpt": ""}
+            for x in (source_lines or ["No local evidence found."])
+        ],
         "assumptions": assumptions,
         "next_actions": next_actions,
         "memory_patch": "No memory changes.",
@@ -673,11 +779,12 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
     history_turns = load_chat_history_for_prompt(chat_id=chat_id, limit=10)
     pks_rows = load_pks_context(limit=6)
     evidence_rows = load_local_evidence_context(query=text_raw, limit=5)
+    source_lines = build_human_sources_lines(language_code, pks_rows, evidence_rows)
 
     user_id = insert_interaction("user", text_raw, {"source": "ui", "chat_id": chat_id})
 
     if is_greeting_only(text_raw, language_code):
-        answer = render_chat_default_output(greeting_clarifying_answer(language_code), language_code, text_raw)
+        answer = render_chat_default_output(greeting_clarifying_answer(language_code), language_code, text_raw, sources=source_lines)
         insert_interaction(
             "assistant",
             answer,
@@ -693,7 +800,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
 
     followup_answer = resolve_followup_from_history(text_raw, history_turns, language_code)
     if followup_answer:
-        answer = render_chat_default_output(followup_answer, language_code, text_raw)
+        answer = render_chat_default_output(followup_answer, language_code, text_raw, sources=source_lines)
         insert_interaction(
             "assistant",
             answer,
@@ -713,11 +820,10 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         user_text=text_raw,
         connectivity="OFFLINE",
         retrieved_context={
-            "chat_id": chat_id,
             "source": "ui.chat",
-            "history_turns": history_turns,
-            "pks_approved": pks_rows,
-            "local_evidence_top": evidence_rows,
+            "recent_history": [{"role": (x.get("role") or ""), "content": (x.get("content") or "")[:220]} for x in history_turns[-6:]],
+            "pks_approved": summarize_pks_for_model(pks_rows, limit=4),
+            "local_evidence_top": summarize_evidence_for_model(evidence_rows, limit=4),
         },
     )
     task_prompt += (
@@ -750,9 +856,30 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             clean_answer = "Nem tudok biztonságos, tiszta választ adni ebben a formában. Kérlek próbáld újra rövidebb kéréssel."
 
     clean_answer = sanitize_assistant_output(clean_answer)
+    if _has_forbidden_user_visible_markers(clean_answer) and model is not None:
+        try:
+            clean_answer = _repair_assistant_output_idsafe(model, language_code, text_raw, clean_answer)
+        except Exception:
+            pass
+    if _has_forbidden_user_visible_markers(clean_answer):
+        if language_code == "hu":
+            clean_answer = "Nem tudok biztonságos, megjeleníthető választ adni ebben a formában. Kérlek írd meg újra röviden a kérésed."
+        else:
+            clean_answer = "I cannot produce a safe user-visible answer in this form. Please restate your request briefly."
+        insert_learning(
+            kind="NegativeFeedback",
+            confidence="High",
+            details={
+                "vote": "down",
+                "category": "format",
+                "comment": "assistant output rejected by user-visible validator",
+                "ui_context": {"route": "/chat/send", "source": "validator"},
+            },
+            related_interaction_id=user_id,
+        )
     if not clean_answer:
         clean_answer = localized_model_error(language_code, "empty sanitized output")
-    answer = render_chat_default_output(clean_answer, language_code, text_raw)
+    answer = render_chat_default_output(clean_answer, language_code, text_raw, sources=source_lines)
 
     insert_interaction(
         "assistant",

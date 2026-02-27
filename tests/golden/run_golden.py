@@ -1053,6 +1053,38 @@ def test_84_utf8_roundtrip_hu_message() -> None:
     assert_true(original in page.text, "Rendered HTML should preserve Hungarian accents without mojibake")
 
 
+def test_85_chat_no_uuid_or_emb_ids_in_output() -> None:
+    out = _chat_send_and_get_output("golden-chat-85", PLANNING_TODAY_HU_MESSAGE)
+    lowered = out.lower()
+    uuid_any_re = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.IGNORECASE)
+    assert_true(uuid_any_re.search(lowered) is None, "assistant output must not contain UUIDs")
+    assert_true("emb:" not in lowered and "artefact_id" not in lowered, "assistant output must not contain emb ids or artefact_id markers")
+
+
+def test_86_chat_no_user_request_echo() -> None:
+    out = _chat_send_and_get_output("golden-chat-86", "Szia, készíts rövid napi tervet.")
+    lowered = out.lower()
+    assert_true("user request:" not in lowered, "assistant output must not echo 'User request:'")
+
+
+def test_87_chat_sources_are_human_readable_only() -> None:
+    out = _chat_send_and_get_output("golden-chat-87", "NightlyWarmupChecklistToken lépései röviden?")
+    sources = _extract_section(out, 3, 4).lower()
+    assert_true("emb:" not in sources and "artefact_id" not in sources, "Evidence & Sources must not contain internal ids")
+    assert_true("pks (approved)" in sources or "approved pks" in sources, "Evidence & Sources should include human-readable PKS label")
+    assert_true(".txt" in sources or "helyi dokumentumok" in sources or "local documents" in sources, "Evidence & Sources should include human-readable local document names")
+
+
+def test_88_chat_repair_triggers_on_uuid_leak() -> None:
+    before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    out = _chat_send_and_get_output("golden-chat-88", "UUID_LEAK_FIXTURE")
+    after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    lowered = out.lower()
+    assert_true(after == before + 1, "validator fail-safe should log a NegativeFeedback event on persistent UUID leak")
+    assert_true("user request:" not in lowered and "emb:" not in lowered, "final user-visible output must be clean after repair/fail-safe")
+    assert_true("123e4567-e89b-12d3-a456-426614174000" not in lowered, "final output must not contain leaked UUID")
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1131,6 +1163,10 @@ def collect_tests() -> list:
         test_82_chat_preview_does_not_show_template_headers,
         test_83_chat_no_policy_dump_markers,
         test_84_utf8_roundtrip_hu_message,
+        test_85_chat_no_uuid_or_emb_ids_in_output,
+        test_86_chat_no_user_request_echo,
+        test_87_chat_sources_are_human_readable_only,
+        test_88_chat_repair_triggers_on_uuid_leak,
     ]
 
 
