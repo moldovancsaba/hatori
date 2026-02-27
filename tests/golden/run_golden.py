@@ -1347,7 +1347,7 @@ def test_99_api_ingest_path_rejected_by_default() -> None:
             os.environ["HATORI_ALLOW_PATH_INGEST"] = old_allow
 
 
-def test_100_outcome_sent_as_is_creates_delivery_event_and_positive_learning() -> None:
+def test_100_api_outcome_sent_as_is_creates_delivery_event_and_positive_learning() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1400,7 +1400,7 @@ def test_100_outcome_sent_as_is_creates_delivery_event_and_positive_learning() -
             os.environ["HATORI_API_TOKEN"] = old
 
 
-def test_101_outcome_edited_then_sent_creates_delivery_event_and_negative_learning_with_texts() -> None:
+def test_101_api_outcome_edited_then_sent_creates_delivery_event_and_negative_learning_with_texts() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1467,7 +1467,7 @@ def test_101_outcome_edited_then_sent_creates_delivery_event_and_negative_learni
             os.environ["HATORI_API_TOKEN"] = old
 
 
-def test_102_outcome_idempotency_blocks_duplicates() -> None:
+def test_102_api_outcome_idempotency_blocks_duplicates() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1514,7 +1514,7 @@ def test_102_outcome_idempotency_blocks_duplicates() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
-def test_103_outcome_requires_token_401() -> None:
+def test_103_api_outcome_requires_token_401() -> None:
     client = api_client()
     out = client.post(
         "/v1/agent/outcome",
@@ -1527,7 +1527,7 @@ def test_103_outcome_requires_token_401() -> None:
     assert_true(out.status_code == 401, "outcome endpoint should require token")
 
 
-def test_104_outcome_rejects_missing_fields_when_edited() -> None:
+def test_104_api_outcome_rejects_missing_fields_when_edited() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1667,11 +1667,11 @@ def collect_tests() -> list:
         test_97_api_search_returns_human_readable_only,
         test_98_api_upload_creates_artefact_and_embeddings_txt,
         test_99_api_ingest_path_rejected_by_default,
-        test_100_outcome_sent_as_is_creates_delivery_event_and_positive_learning,
-        test_101_outcome_edited_then_sent_creates_delivery_event_and_negative_learning_with_texts,
-        test_102_outcome_idempotency_blocks_duplicates,
-        test_103_outcome_requires_token_401,
-        test_104_outcome_rejects_missing_fields_when_edited,
+        test_100_api_outcome_sent_as_is_creates_delivery_event_and_positive_learning,
+        test_101_api_outcome_edited_then_sent_creates_delivery_event_and_negative_learning_with_texts,
+        test_102_api_outcome_idempotency_blocks_duplicates,
+        test_103_api_outcome_requires_token_401,
+        test_104_api_outcome_rejects_missing_fields_when_edited,
     ]
 
 
