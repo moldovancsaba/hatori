@@ -1347,7 +1347,7 @@ def test_99_api_ingest_path_rejected_by_default() -> None:
             os.environ["HATORI_ALLOW_PATH_INGEST"] = old_allow
 
 
-def test_100_api_outcome_sent_as_is_creates_positive_learning() -> None:
+def test_100_outcome_sent_as_is_creates_delivery_event_and_positive_learning() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1362,8 +1362,12 @@ def test_100_api_outcome_sent_as_is_creates_positive_learning() -> None:
                 "message": "Szia, írj rövid választ.",
             },
         )
+        assert_true(respond.status_code == 200, "respond should return 200")
         assistant_id = respond.json()["assistant_interaction_id"]
+        assert_true(bool(respond.json().get("assistant_message", "").strip()), "respond should return assistant_message")
+        assert_true(respond.json().get("message_id") == "reply:m100", "respond should return message_id")
         before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+        before_delivery = int(db_scalar("SELECT count(*) FROM delivery_events;"))
         out = client.post(
             "/v1/agent/outcome",
             headers={"X-Hatori-Token": "golden-token"},
@@ -1377,7 +1381,18 @@ def test_100_api_outcome_sent_as_is_creates_positive_learning() -> None:
         )
         assert_true(out.status_code == 200, "outcome endpoint should accept sent_as_is")
         after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+        after_delivery = int(db_scalar("SELECT count(*) FROM delivery_events;"))
         assert_true(after == before + 1, "sent_as_is should create PositiveFeedback learning event")
+        assert_true(after_delivery == before_delivery + 1, "sent_as_is should create delivery_events row")
+        dcount = int(
+            db_scalar(
+                "SELECT count(*) FROM delivery_events "
+                "WHERE external_outcome_id='reply:outcome-100' "
+                f"AND assistant_interaction_id='{assistant_id}' "
+                "AND status='sent_as_is';"
+            )
+        )
+        assert_true(dcount == 1, "delivery_events row should be linked and auditable")
     finally:
         if old is None:
             os.environ.pop("HATORI_API_TOKEN", None)
@@ -1385,7 +1400,7 @@ def test_100_api_outcome_sent_as_is_creates_positive_learning() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
-def test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_text() -> None:
+def test_101_outcome_edited_then_sent_creates_delivery_event_and_negative_learning_with_texts() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1401,7 +1416,9 @@ def test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_t
             },
         )
         assistant_id = respond.json()["assistant_interaction_id"]
+        original_text = (respond.json().get("assistant_message") or "").strip()
         final_text = "Szia! Holnap 10-kor jó neked?"
+        diff_text = "- Bőbeszédű javaslat\n+ Rövid, közvetlen egyeztető üzenet"
         out = client.post(
             "/v1/agent/outcome",
             headers={"X-Hatori-Token": "golden-token"},
@@ -1410,7 +1427,9 @@ def test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_t
                 "assistant_interaction_id": assistant_id,
                 "status": "edited_then_sent",
                 "platform": "imessage",
+                "original_text": original_text,
                 "final_sent_text": final_text,
+                "diff": diff_text,
                 "edit_reason": "too long",
             },
         )
@@ -1419,10 +1438,28 @@ def test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_t
             db_scalar(
                 "SELECT count(*) FROM learning_events "
                 f"WHERE kind='NegativeFeedback' AND related_interaction_id='{assistant_id}' "
+                "AND COALESCE(details->>'external_outcome_id','')='reply:outcome-101' "
                 f"AND COALESCE(details->>'final_sent_text','')='{sql_escape(final_text)}';"
             )
         )
-        assert_true(row_count == 1, "edited_then_sent should log NegativeFeedback with final_sent_text")
+        assert_true(row_count == 1, "edited_then_sent should log NegativeFeedback with external_outcome_id and final text")
+        diff_logged = db_scalar(
+            "SELECT COALESCE(details->>'diff','') FROM learning_events "
+            f"WHERE kind='NegativeFeedback' AND related_interaction_id='{assistant_id}' "
+            "AND COALESCE(details->>'external_outcome_id','')='reply:outcome-101' "
+            "ORDER BY occurred_at DESC LIMIT 1;"
+        )
+        assert_true("Rövid, közvetlen" in diff_logged or "Rovid, kozvetlen" in diff_logged, "learning event should preserve diff/edit summary")
+        dcount = int(
+            db_scalar(
+                "SELECT count(*) FROM delivery_events "
+                f"WHERE external_outcome_id='reply:outcome-101' AND assistant_interaction_id='{assistant_id}' "
+                f"AND COALESCE(original_text,'')='{sql_escape(original_text)}' "
+                f"AND COALESCE(final_sent_text,'')='{sql_escape(final_text)}' "
+                f"AND COALESCE(diff,'')='{sql_escape(diff_text)}';"
+            )
+        )
+        assert_true(dcount == 1, "delivery_events should capture original_text/final_sent_text/diff")
     finally:
         if old is None:
             os.environ.pop("HATORI_API_TOKEN", None)
@@ -1430,7 +1467,7 @@ def test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_t
             os.environ["HATORI_API_TOKEN"] = old
 
 
-def test_102_api_outcome_requires_idempotency_no_duplicate() -> None:
+def test_102_outcome_idempotency_blocks_duplicates() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1457,7 +1494,10 @@ def test_102_api_outcome_requires_idempotency_no_duplicate() -> None:
         assert_true(one.status_code == 200 and two.status_code == 200, "repeated outcome calls should be accepted")
         lid1 = one.json().get("learning_event_id", "")
         lid2 = two.json().get("learning_event_id", "")
+        did1 = one.json().get("delivery_event_id", "")
+        did2 = two.json().get("delivery_event_id", "")
         assert_true(lid1 == lid2, "duplicate outcome must return same learning_event_id")
+        assert_true(did1 == did2, "duplicate outcome must return same delivery_event_id")
         cnt = int(
             db_scalar(
                 "SELECT count(*) FROM learning_events "
@@ -1465,6 +1505,8 @@ def test_102_api_outcome_requires_idempotency_no_duplicate() -> None:
             )
         )
         assert_true(cnt == 1, "idempotent outcome must not duplicate learning events")
+        dcnt = int(db_scalar("SELECT count(*) FROM delivery_events WHERE external_outcome_id='reply:outcome-102';"))
+        assert_true(dcnt == 1, "idempotent outcome must not duplicate delivery_events rows")
     finally:
         if old is None:
             os.environ.pop("HATORI_API_TOKEN", None)
@@ -1472,7 +1514,7 @@ def test_102_api_outcome_requires_idempotency_no_duplicate() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
-def test_103_api_outcome_requires_token_401() -> None:
+def test_103_outcome_requires_token_401() -> None:
     client = api_client()
     out = client.post(
         "/v1/agent/outcome",
@@ -1485,7 +1527,7 @@ def test_103_api_outcome_requires_token_401() -> None:
     assert_true(out.status_code == 401, "outcome endpoint should require token")
 
 
-def test_104_api_outcome_rejects_missing_final_text_when_edited() -> None:
+def test_104_outcome_rejects_missing_fields_when_edited() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
     try:
@@ -1512,6 +1554,18 @@ def test_104_api_outcome_rejects_missing_final_text_when_edited() -> None:
             },
         )
         assert_true(out.status_code == 400, "edited_then_sent must require final_sent_text")
+        out2 = client.post(
+            "/v1/agent/outcome",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "external_outcome_id": "reply:outcome-104b",
+                "assistant_interaction_id": assistant_id,
+                "status": "edited_then_sent",
+                "platform": "imessage",
+                "final_sent_text": "röviden jó",
+            },
+        )
+        assert_true(out2.status_code == 400, "edited_then_sent must require original_text")
     finally:
         if old is None:
             os.environ.pop("HATORI_API_TOKEN", None)
@@ -1613,11 +1667,11 @@ def collect_tests() -> list:
         test_97_api_search_returns_human_readable_only,
         test_98_api_upload_creates_artefact_and_embeddings_txt,
         test_99_api_ingest_path_rejected_by_default,
-        test_100_api_outcome_sent_as_is_creates_positive_learning,
-        test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_text,
-        test_102_api_outcome_requires_idempotency_no_duplicate,
-        test_103_api_outcome_requires_token_401,
-        test_104_api_outcome_rejects_missing_final_text_when_edited,
+        test_100_outcome_sent_as_is_creates_delivery_event_and_positive_learning,
+        test_101_outcome_edited_then_sent_creates_delivery_event_and_negative_learning_with_texts,
+        test_102_outcome_idempotency_blocks_duplicates,
+        test_103_outcome_requires_token_401,
+        test_104_outcome_rejects_missing_fields_when_edited,
     ]
 
 

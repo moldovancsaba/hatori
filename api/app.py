@@ -93,7 +93,9 @@ class OutcomeBody(BaseModel):
     platform: str = "other"
     recipient_id: str | None = None
     status: str
+    original_text: str | None = None
     final_sent_text: str | None = None
+    diff: str | None = None
     edit_reason: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -190,6 +192,14 @@ def _interaction_id_by_external_event_id(external_event_id: str, source: str) ->
         "SELECT id FROM interaction_events "
         f"WHERE COALESCE(metadata->>'external_event_id','')='{ui._esc_sql(external_event_id)}' "
         f"AND COALESCE(metadata->>'source','')='{ui._esc_sql(source)}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    ).strip()
+
+
+def _delivery_event_id_by_external_outcome_id(external_outcome_id: str) -> str:
+    return ui.psql(
+        "SELECT id FROM delivery_events "
+        f"WHERE external_outcome_id='{ui._esc_sql(external_outcome_id)}' "
         "ORDER BY occurred_at DESC LIMIT 1;"
     ).strip()
 
@@ -477,6 +487,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
             )
             return {
                 "conversation_id": conversation_id,
+                "message_id": body.message_id,
                 "user_interaction_id": row.get("related_id", ""),
                 "assistant_interaction_id": row.get("id", ""),
                 "assistant_message": row.get("content", ""),
@@ -519,6 +530,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
     )
     return {
         "conversation_id": conversation_id,
+        "message_id": body.message_id,
         "user_interaction_id": user_id,
         "assistant_interaction_id": assistant_id,
         "assistant_message": assistant_message,
@@ -585,6 +597,19 @@ def agent_outcome(body: OutcomeBody, x_hatori_token: str | None = Header(default
     if role != "assistant":
         raise HTTPException(status_code=400, detail="assistant_interaction_id must reference assistant row")
 
+    existing_delivery_id = _delivery_event_id_by_external_outcome_id(external_outcome_id)
+    if existing_delivery_id:
+        existing_learning = ui.psql(
+            "SELECT id FROM learning_events "
+            f"WHERE COALESCE(details->>'external_outcome_id','')='{ui._esc_sql(external_outcome_id)}' "
+            "ORDER BY occurred_at DESC LIMIT 1;"
+        ).strip()
+        return {
+            "delivery_event_id": existing_delivery_id,
+            "learning_event_id": existing_learning,
+            "duplicate": True,
+        }
+
     existing = ui.psql(
         "SELECT id FROM learning_events "
         f"WHERE COALESCE(details->>'external_outcome_id','')='{ui._esc_sql(external_outcome_id)}' "
@@ -596,9 +621,14 @@ def agent_outcome(body: OutcomeBody, x_hatori_token: str | None = Header(default
     status = (body.status or "").strip().lower()
     if status not in {"sent_as_is", "edited_then_sent", "not_sent"}:
         raise HTTPException(status_code=400, detail="status must be sent_as_is|edited_then_sent|not_sent")
+    original_text = (body.original_text or "").strip()
     final_sent_text = (body.final_sent_text or "").strip()
-    if status == "edited_then_sent" and not final_sent_text:
-        raise HTTPException(status_code=400, detail="final_sent_text is required when status=edited_then_sent")
+    diff_text = (body.diff or "").strip()
+    if status == "edited_then_sent":
+        if not original_text:
+            raise HTTPException(status_code=400, detail="original_text is required when status=edited_then_sent")
+        if not final_sent_text:
+            raise HTTPException(status_code=400, detail="final_sent_text is required when status=edited_then_sent")
 
     if status == "sent_as_is":
         kind = "PositiveFeedback"
@@ -616,18 +646,31 @@ def agent_outcome(body: OutcomeBody, x_hatori_token: str | None = Header(default
         "platform": (body.platform or "other").strip() or "other",
         "conversation_id": (body.conversation_id or "").strip(),
         "recipient_id": (body.recipient_id or "").strip(),
+        "original_text": original_text,
         "edit_reason": (body.edit_reason or "").strip(),
         "final_sent_text": final_sent_text,
+        "diff": diff_text,
         "metadata": body.metadata or {},
         "ui_context": {"route": "/v1/agent/outcome", "source": "reply"},
     }
+    delivery_id = str(uuid.uuid4())
+    ui.psql(
+        "INSERT INTO delivery_events "
+        "(id, external_outcome_id, assistant_interaction_id, status, platform, recipient_id, conversation_id, "
+        "original_text, final_sent_text, diff, edit_reason, metadata) "
+        f"VALUES ('{delivery_id}', '{ui._esc_sql(external_outcome_id)}', '{ui._esc_sql(body.assistant_interaction_id)}', "
+        f"'{ui._esc_sql(status)}', '{ui._esc_sql(details['platform'])}', '{ui._esc_sql(details['recipient_id'])}', "
+        f"'{ui._esc_sql(details['conversation_id'])}', '{ui._esc_sql(original_text)}', '{ui._esc_sql(final_sent_text)}', "
+        f"'{ui._esc_sql(diff_text)}', '{ui._esc_sql(details['edit_reason'])}', "
+        f"'{ui._esc_sql(json.dumps(body.metadata or {}, ensure_ascii=False))}'::jsonb);"
+    )
     lid = ui.insert_learning(
         kind=kind,
         confidence=confidence,
         details=details,
         related_interaction_id=body.assistant_interaction_id,
     )
-    return {"learning_event_id": lid, "duplicate": False}
+    return {"delivery_event_id": delivery_id, "learning_event_id": lid, "duplicate": False}
 
 
 @app.post("/v1/ingest/event")

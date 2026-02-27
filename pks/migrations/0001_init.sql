@@ -97,6 +97,27 @@ CREATE TABLE IF NOT EXISTS learning_events (
 CREATE INDEX IF NOT EXISTS idx_learning_events_occurred_at ON learning_events(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_learning_events_kind ON learning_events(kind);
 
+-- Delivery outcomes from external send pipeline ({reply}): audit-grade, idempotent
+CREATE TABLE IF NOT EXISTS delivery_events (
+  id                   uuid PRIMARY KEY,
+  occurred_at          timestamptz NOT NULL DEFAULT now(),
+  external_outcome_id  text NOT NULL UNIQUE,
+  assistant_interaction_id uuid NOT NULL REFERENCES interaction_events(id) ON DELETE CASCADE,
+  status               text NOT NULL, -- sent_as_is|edited_then_sent|not_sent
+  platform             text NULL,
+  recipient_id         text NULL,
+  conversation_id      text NULL,
+  original_text        text NULL,
+  final_sent_text      text NULL,
+  diff                 text NULL,
+  edit_reason          text NULL,
+  metadata             jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_delivery_events_occurred_at ON delivery_events(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_delivery_events_assistant_interaction_id ON delivery_events(assistant_interaction_id);
+CREATE INDEX IF NOT EXISTS idx_delivery_events_status ON delivery_events(status);
+
 -- Audit events: append-only (memory edits, migrations, model swaps)
 CREATE TABLE IF NOT EXISTS audit_events (
   id          uuid PRIMARY KEY,
