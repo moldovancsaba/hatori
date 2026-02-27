@@ -164,12 +164,48 @@ def localized_model_error(code: str, err: str) -> str:
     return f"Local model error: {err}"
 
 
-def render_chat_default_output(answer: str, language_code: str) -> str:
+def is_daily_planning_request(text: str) -> bool:
+    lowered = text.lower()
+    markers = [
+        "daily plan",
+        "weekly plan",
+        "plan my day",
+        "planning",
+        "napi terv",
+        "heti terv",
+        "tervez",
+        "ütemez",
+    ]
+    return any(m in lowered for m in markers)
+
+
+def render_chat_default_output(answer: str, language_code: str, user_text: str) -> str:
+    planning = is_daily_planning_request(user_text)
     assumptions = [
         f"Language mode selected from current user message: {language_name(language_code)}.",
         "Offline local runtime only; no web retrieval used.",
     ]
-    next_actions = ["Continue the chat with a follow-up if you want refinement."]
+    if planning:
+        assumptions.append("No explicit calendar, dates, or time constraints were provided by the user.")
+
+    if planning and language_code == "hu":
+        next_actions = [
+            "[ ] Azonositsd a mai 3 legfontosabb kimenetet.",
+            "[ ] Foglalj 2 db 60 perces fokusz blokkot mely munkara.",
+            "[ ] Utemezz 1 admin blokkot valaszokra es szervezesre.",
+            "[ ] Adj 1 puffer blokkot varatlan feladatokra.",
+            "[ ] Zaras elott ellenorizd mi kesz, mi csuszik, mi a holnapi elso lepes.",
+        ]
+    elif planning:
+        next_actions = [
+            "[ ] Identify the top 3 outcomes for today.",
+            "[ ] Reserve two 60-minute focus blocks for deep work.",
+            "[ ] Schedule one admin block for replies and coordination.",
+            "[ ] Add one buffer block for unexpected tasks.",
+            "[ ] End the day with a quick review and first step for tomorrow.",
+        ]
+    else:
+        next_actions = ["Continue the chat with a follow-up if you want refinement."]
     payload = {
         "connectivity_state": "OFFLINE",
         "answer": answer,
@@ -301,7 +337,7 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
         raw_answer = localized_model_error(language_code, str(exc))
     if not raw_answer:
         raw_answer = localized_model_error(language_code, "empty response")
-    answer = render_chat_default_output(raw_answer, language_code)
+    answer = render_chat_default_output(raw_answer, language_code, text)
 
     insert_interaction(
         "assistant",

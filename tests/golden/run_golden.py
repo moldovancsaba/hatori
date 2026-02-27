@@ -627,6 +627,121 @@ def test_50_upload_content_searchable_in_ui() -> None:
     assert_true("artefact_id=" in resp.text, "/search UI should show artefact provenance")
 
 
+def _daily_planning_chat_output(chat_id: str, message: str, model_mode: str = "none") -> str:
+    old_model = os.environ.get("HATORI_MODEL")
+    os.environ["HATORI_MODEL"] = model_mode
+    try:
+        client = ui_client()
+        resp = client.post("/chat/send", data={"chat_id": chat_id, "message": message})
+        assert_true(resp.status_code in {200, 303}, "chat send should succeed for planning request")
+    finally:
+        if old_model is None:
+            os.environ.pop("HATORI_MODEL", None)
+        else:
+            os.environ["HATORI_MODEL"] = old_model
+
+    assistant_text = db_scalar(
+        "SELECT content FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assert_true(assistant_text != "", "assistant planning response should be non-empty")
+    return assistant_text
+
+
+def _assert_template_sections(text: str) -> None:
+    required = [
+        "1) Connectivity State:",
+        "2) Answer / Recommendation",
+        "3) Evidence & Sources",
+        "4) Assumptions & Uncertainties",
+        "5) Next Actions",
+        "6) Memory Patch",
+        "7) Learning Log (J)",
+    ]
+    for marker in required:
+        assert_true(marker in text, f"Missing template section in planning output: {marker}")
+
+
+def test_60_planning_request_hu_mirrors_language() -> None:
+    chat_id = "golden-plan-60"
+    out = _daily_planning_chat_output(chat_id, "Kérlek készíts egy rövid napi tervet, 5 pontban.")
+    _assert_template_sections(out)
+    lowered = out.lower()
+    assert_true("offline determinisztikus valasz" in lowered or "javaslat" in lowered, "Hungarian planning output should contain Hungarian markers")
+    assert_true("offline deterministic response" not in lowered, "Hungarian planning output should avoid English-only deterministic marker")
+
+
+def test_61_planning_request_includes_assumptions_when_calendar_unknown() -> None:
+    chat_id = "golden-plan-61"
+    out = _daily_planning_chat_output(chat_id, "Adj napi tervet ma 5 pontban.")
+    assumptions = out.split("4) Assumptions & Uncertainties", 1)[1].split("5) Next Actions", 1)[0].lower()
+    assert_true("no explicit calendar" in assumptions or "time constraints" in assumptions, "Planning output should state missing calendar/time assumptions")
+
+
+def test_62_planning_request_outputs_next_actions_checklist() -> None:
+    chat_id = "golden-plan-62"
+    out = _daily_planning_chat_output(chat_id, "Please prepare a daily planning checklist.")
+    next_actions = out.split("5) Next Actions", 1)[1].split("6) Memory Patch", 1)[0]
+    checklist_count = next_actions.count("[ ]")
+    bullet_count = next_actions.count("- ")
+    assert_true(checklist_count >= 5 or bullet_count >= 5, "Planning next actions should include at least 5 checklist/bullet items")
+
+
+def test_63_planning_request_no_memory_patch_by_default() -> None:
+    chat_id = "golden-plan-63"
+    out = _daily_planning_chat_output(chat_id, "Plan my day in 5 points.")
+    memory_patch = out.split("6) Memory Patch", 1)[1].split("7) Learning Log (J)", 1)[0]
+    assert_true("No memory changes." in memory_patch, "Planning should not write memory by default")
+
+
+def test_64_planning_request_offline_no_web_claims() -> None:
+    chat_id = "golden-plan-64"
+    out = _daily_planning_chat_output(chat_id, "Give me a weekly planning scaffold.")
+    lowered = out.lower()
+    assert_true("http://" not in lowered and "https://" not in lowered, "Planning output must not include web URLs")
+    assert_true("verified online" not in lowered, "Planning output must not claim online verification")
+    assert_true("source:" not in lowered, "Planning output must not imply web source citations")
+
+
+def test_65_planning_request_respects_connectivity_state_offline() -> None:
+    chat_id = "golden-plan-65"
+    out = _daily_planning_chat_output(chat_id, "Create a concise daily plan with assumptions.")
+    assert_true("1) Connectivity State: OFFLINE" in out, "Planning output must stay OFFLINE")
+
+
+def test_66_planning_request_feedback_buttons_do_not_auto_log() -> None:
+    chat_id = "golden-plan-66"
+    before = int(db_scalar("SELECT count(*) FROM learning_events;"))
+    out = _daily_planning_chat_output(chat_id, "Please create a daily planning checklist without storing memory.")
+    after = int(db_scalar("SELECT count(*) FROM learning_events;"))
+    assert_true(after == before, "Chat planning path should not auto-log learning events without feedback submission")
+    assert_true("No learning event recorded." in out, "Learning log section should show no event by default")
+
+
+def test_67_planning_request_structure_stable_under_ollama() -> None:
+    # Prefer Ollama when available; fallback to deterministic none in CI.
+    mode = "none"
+    try:
+        proc = subprocess.run(
+            ["curl", "-s", "http://127.0.0.1:11434/api/tags"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if proc.returncode == 0:
+            mode = "ollama"
+    except Exception:
+        mode = "none"
+
+    chat_id = "golden-plan-67"
+    out = _daily_planning_chat_output(chat_id, "Please build my weekly plan with assumptions and next actions.", model_mode=mode)
+    _assert_template_sections(out)
+    lowered = out.lower()
+    assert_true("placeholder" not in lowered and "dummy" not in lowered and "tbd" not in lowered, "Planning structure should stay real under selected model mode")
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -680,6 +795,14 @@ def collect_tests() -> list:
         test_48_feedback_down_creates_negative_learning,
         test_49_upload_txt_creates_artefact_and_embeddings,
         test_50_upload_content_searchable_in_ui,
+        test_60_planning_request_hu_mirrors_language,
+        test_61_planning_request_includes_assumptions_when_calendar_unknown,
+        test_62_planning_request_outputs_next_actions_checklist,
+        test_63_planning_request_no_memory_patch_by_default,
+        test_64_planning_request_offline_no_web_claims,
+        test_65_planning_request_respects_connectivity_state_offline,
+        test_66_planning_request_feedback_buttons_do_not_auto_log,
+        test_67_planning_request_structure_stable_under_ollama,
     ]
 
 

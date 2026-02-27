@@ -22,12 +22,57 @@ class ModelAdapter(Protocol):
 class NullAdapter:
     name = "none"
 
+    def _lang_from_task_prompt(self, task_prompt: str) -> str:
+        lowered = task_prompt.lower()
+        if "respond in hungarian" in lowered:
+            return "hu"
+        if "respond in romanian" in lowered:
+            return "ro"
+        if "respond in spanish" in lowered:
+            return "es"
+        if "respond in french" in lowered:
+            return "fr"
+        if "respond in german" in lowered:
+            return "de"
+        return "en"
+
     def generate(self, system_prompt: str, task_prompt: str) -> str:
         digest = hashlib.sha256((system_prompt + "\n" + task_prompt).encode("utf-8")).hexdigest()[:12]
+        lang = self._lang_from_task_prompt(task_prompt)
+        if lang == "hu":
+            return (
+                "Offline determinisztikus valasz (NullAdapter). "
+                f"Keresi ujjlenyomat: {digest}. "
+                "Javaslat: dolgozz 5 pontos napi ellenorzo listaval, es igazitsd a valos kapacitasodhoz."
+            )
+        if lang == "ro":
+            return (
+                "Raspuns offline determinist (NullAdapter). "
+                f"Amprenta cererii: {digest}. "
+                "Recomandare: foloseste o lista zilnica in 5 puncte si ajusteaza dupa capacitatea reala."
+            )
+        if lang == "es":
+            return (
+                "Respuesta offline determinista (NullAdapter). "
+                f"Huella de solicitud: {digest}. "
+                "Recomendacion: usa una lista diaria de 5 puntos y ajustala a tu capacidad real."
+            )
+        if lang == "fr":
+            return (
+                "Reponse hors ligne deterministe (NullAdapter). "
+                f"Empreinte de requete: {digest}. "
+                "Recommendation: utilisez une checklist quotidienne en 5 points et ajustez-la a votre capacite reelle."
+            )
+        if lang == "de":
+            return (
+                "Deterministische Offline-Antwort (NullAdapter). "
+                f"Anfrage-Fingerabdruck: {digest}. "
+                "Empfehlung: nutze eine taegliche 5-Punkte-Checkliste und passe sie an deine reale Kapazitaet an."
+            )
         return (
             "Offline deterministic response (NullAdapter). "
             f"Request fingerprint: {digest}. "
-            "Set HATORI_MODEL=ollama (or llamacpp) to enable full generation."
+            "Recommendation: use a concise 5-point daily checklist and adapt it to real capacity."
         )
 
     def healthcheck(self) -> dict:
