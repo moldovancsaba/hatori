@@ -1,7 +1,7 @@
 # hatori-client
 
 Environment:
-- `HATORI_BASE_URL` (default `http://127.0.0.1:8094`)
+- `HATORI_BASE_URL` (default `http://127.0.0.1:23572`)
 - `HATORI_API_TOKEN` (required)
 
 Exports:
