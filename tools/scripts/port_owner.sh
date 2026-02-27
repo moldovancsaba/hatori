@@ -2,14 +2,13 @@
 set -euo pipefail
 
 if [ "${1:-}" = "" ]; then
-  echo "usage: $0 PORT" >&2
+  echo "usage: $0 <port>" >&2
   exit 2
 fi
 
-PORT="$1"
+port="$1"
 
-pid="$(lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN -Fp 2>/dev/null | sed -n 's/^p//p' | head -n1 || true)"
-
+pid="$(lsof -nP -iTCP:"${port}" -sTCP:LISTEN -Fp 2>/dev/null | sed -n 's/^p//p' | head -n1 || true)"
 if [ -z "$pid" ]; then
   echo "FREE"
   exit 0

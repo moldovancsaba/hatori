@@ -1,52 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-TARGET="${1:-all}"
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-UI_PORT="${PORT:-8093}"
-API_PORT_VAL="${API_PORT:-8094}"
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ui_port="${PORT:-8093}"
+api_port="${API_PORT:-8094}"
+target="${1:-all}"
 
-stop_port() {
+do_stop() {
   local port="$1"
   local kind="$2"
-  local pid
-  pid="$(${ROOT_DIR}/tools/scripts/port_owner.sh "$port" | sed -n 's/^PID=\([0-9][0-9]*\).*/\1/p')"
+  local owner pid cmd
 
+  owner="$(${root_dir}/tools/scripts/port_owner.sh "$port" || true)"
+  if [ "$owner" = "FREE" ] || [ -z "$owner" ]; then
+    echo "[${kind}] not running on ${port}"
+    return 0
+  fi
+
+  pid="$(printf '%s\n' "$owner" | sed -n 's/^PID=\([0-9][0-9]*\).*/\1/p')"
+  cmd="$(printf '%s\n' "$owner" | sed -n 's/^PID=[0-9][0-9]* CMD=//p')"
   if [ -z "$pid" ]; then
-    echo "[${kind}] not running on port ${port}"
+    echo "[${kind}] unable to parse owner for port ${port}" >&2
     return 0
   fi
 
-  if ! "${ROOT_DIR}/tools/scripts/is_hatori_process.sh" "$pid"; then
-    local cmd
-    cmd="$(ps -p "$pid" -o command= 2>/dev/null | sed 's/^[[:space:]]*//' || true)"
-    echo "[${kind}] skip non-Hatori pid=${pid} cmd=${cmd}"
+  if ! "${root_dir}/tools/scripts/is_hatori_pid.sh" "$pid" "$kind"; then
+    echo "SKIP: not Hatori (${kind}) PID=${pid} CMD=${cmd:-unknown}"
     return 0
   fi
 
-  echo "[${kind}] stopping pid=${pid} on port ${port}"
+  echo "[${kind}] stopping pid=${pid} on ${port}"
   kill -TERM "$pid" 2>/dev/null || true
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     if ! kill -0 "$pid" 2>/dev/null; then
       echo "[${kind}] stopped"
       return 0
     fi
     sleep 0.2
   done
-  echo "[${kind}] TERM timeout; sending KILL to pid=${pid}"
+
+  echo "[${kind}] TERM timeout; sending KILL pid=${pid}"
   kill -KILL "$pid" 2>/dev/null || true
+  return 0
 }
 
-case "$TARGET" in
+case "$target" in
   ui)
-    stop_port "$UI_PORT" "ui"
+    do_stop "$ui_port" ui
     ;;
   api)
-    stop_port "$API_PORT_VAL" "api"
+    do_stop "$api_port" api
     ;;
   all)
-    stop_port "$UI_PORT" "ui"
-    stop_port "$API_PORT_VAL" "api"
+    do_stop "$ui_port" ui
+    do_stop "$api_port" api
     ;;
   *)
     echo "usage: $0 [ui|api|all]" >&2

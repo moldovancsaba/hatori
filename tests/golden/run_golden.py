@@ -3,8 +3,10 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 import sys
+import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -50,6 +52,27 @@ def run_cli_json(args: list[str]) -> dict:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Invalid JSON from CLI for args={args}\nOUT:\n{proc.stdout}\nERR:\n{proc.stderr}") from exc
+
+
+def run_script(path: str, args: list[str], expect_ok: bool = True, env: dict | None = None) -> subprocess.CompletedProcess:
+    return run([path, *args], expect_ok=expect_ok, env=env)
+
+
+def free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return int(sock.getsockname()[1])
+
+
+def wait_for_listen(port: int, timeout_s: float = 6.0) -> bool:
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        out = run_script("./tools/scripts/port_owner.sh", [str(port)], expect_ok=True)
+        if out.stdout.strip() != "FREE":
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def db_scalar(sql: str) -> str:
@@ -1669,6 +1692,94 @@ def test_104_api_outcome_rejects_missing_fields_when_edited() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
+def test_105_port_script_free_busy_logic() -> None:
+    port = free_port()
+    out = run_script("./tools/scripts/port_owner.sh", [str(port)], expect_ok=True)
+    assert_true(out.stdout.strip() == "FREE", "port_owner should report FREE on unused port")
+
+    proc = subprocess.Popen([sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert_true(wait_for_listen(port), "http.server should start listening on ephemeral port")
+        out2 = run_script("./tools/scripts/port_owner.sh", [str(port)], expect_ok=True)
+        txt = out2.stdout.strip()
+        assert_true(txt.startswith("PID=") and "CMD=" in txt, "port_owner should report PID and CMD for busy port")
+        assert_true("http.server" in txt, "port_owner should include commandline for busy listener")
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+
+
+def test_106_ensure_service_port_reuses_hatori() -> None:
+    port = free_port()
+    env = dict(os.environ)
+    env["API_PORT"] = str(port)
+    env["HATORI_API_TOKEN"] = "golden-token"
+    server = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "api.app:app", "--host", "127.0.0.1", "--port", str(port)],
+        cwd=ROOT,
+        env=env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert_true(wait_for_listen(port), "uvicorn api server should start on ephemeral test port")
+        out = run_script(
+            "./tools/scripts/ensure_service_port.sh",
+            [str(port), "api", "echo SHOULD_NOT_START"],
+            expect_ok=True,
+            env=env,
+        )
+        txt = out.stdout
+        assert_true("OK: already running" in txt, "ensure_service_port should reuse running Hatori api process")
+        assert_true("SHOULD_NOT_START" not in txt, "ensure_service_port should not execute start command when reusing")
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            server.wait(timeout=2)
+
+
+def test_107_ensure_service_port_refuses_non_hatori() -> None:
+    port = free_port()
+    proc = subprocess.Popen([sys.executable, "-m", "http.server", str(port), "--bind", "127.0.0.1"], cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    try:
+        assert_true(wait_for_listen(port), "http.server should start for non-hatori collision test")
+        res = run_script(
+            "./tools/scripts/ensure_service_port.sh",
+            [str(port), "api", "echo SHOULD_NOT_START"],
+            expect_ok=False,
+        )
+        assert_true(res.returncode != 0, "ensure_service_port should fail when non-Hatori owns api port")
+        err_txt = (res.stderr or "") + (res.stdout or "")
+        assert_true("FAIL: port" in err_txt and "busy by PID=" in err_txt, "failure message should include PID details")
+        assert_true("SHOULD_NOT_START" not in err_txt, "ensure_service_port should not run start command on collision")
+        alive = proc.poll() is None
+        assert_true(alive, "ensure_service_port must not kill non-Hatori process")
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+
+
+def test_108_ensure_ollama_does_not_fail_when_unneeded() -> None:
+    env = dict(os.environ)
+    env["HATORI_GENERATOR_ORDER"] = "mlx"
+    env["HATORI_MODEL"] = "none"
+    env.pop("HATORI_OLLAMA_MODEL", None)
+    env.pop("HATORI_OLLAMA_URL", None)
+    out = run_script("./tools/scripts/ensure_ollama.sh", [], expect_ok=True, env=env)
+    assert_true("not required" in out.stdout.lower(), "ensure_ollama should no-op when ollama backend is not required")
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1773,6 +1884,10 @@ def collect_tests() -> list:
         test_102_api_outcome_idempotency_blocks_duplicates,
         test_103_api_outcome_requires_token_401,
         test_104_api_outcome_rejects_missing_fields_when_edited,
+        test_105_port_script_free_busy_logic,
+        test_106_ensure_service_port_reuses_hatori,
+        test_107_ensure_service_port_refuses_non_hatori,
+        test_108_ensure_ollama_does_not_fail_when_unneeded,
     ]
 
 

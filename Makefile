@@ -23,7 +23,12 @@ run-ui:
 .PHONY: run-ui-hatori
 run-ui-hatori:
 	@PORT_VAL=$${PORT:-8093}; \
-	./tools/scripts/ensure_port.sh "$$PORT_VAL" ui ". .venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $$PORT_VAL"
+	NEED_OLLAMA=0; \
+	ORDER=$${HATORI_GENERATOR_ORDER:-mlx,ollama}; \
+	if printf '%s' "$$ORDER" | tr '[:upper:]' '[:lower:]' | grep -q 'ollama'; then NEED_OLLAMA=1; fi; \
+	if [ "$${HATORI_MODEL:-}" = "ollama" ] || [ -n "$${HATORI_OLLAMA_MODEL:-}" ] || [ -n "$${HATORI_OLLAMA_URL:-}" ]; then NEED_OLLAMA=1; fi; \
+	if [ "$$NEED_OLLAMA" = "1" ]; then ./tools/scripts/ensure_ollama.sh; fi; \
+	./tools/scripts/ensure_service_port.sh "$$PORT_VAL" ui ". .venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $$PORT_VAL"
 
 .PHONY: run-api
 run-api:
@@ -33,7 +38,7 @@ run-api:
 	  echo "Refusing non-loopback bind without HATORI_API_ALLOW_CIDRS"; \
 	  exit 1; \
 	fi; \
-	./tools/scripts/ensure_port.sh "$$API_PORT_VAL" api ". .venv/bin/activate && HATORI_API_TOKEN=\$${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host $$HOST --port $$API_PORT_VAL"
+	./tools/scripts/ensure_service_port.sh "$$API_PORT_VAL" api ". .venv/bin/activate && HATORI_API_TOKEN=\$${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host $$HOST --port $$API_PORT_VAL"
 
 .PHONY: stop-ui
 stop-ui:
@@ -45,7 +50,7 @@ stop-api:
 
 .PHONY: stop
 stop:
-	./tools/scripts/stop_hatori.sh all
+	./tools/scripts/stop_hatori.sh
 
 .PHONY: model-health
 model-health:

@@ -24,6 +24,12 @@ Concurrency rule:
 - If a second command starts while another holds the DB lock, it fails fast with `DB busy; retry`.
 
 ## Daily runtime commands
+### Ports & Services
+
+- Hatori UI: `127.0.0.1:8093`
+- Hatori API: `127.0.0.1:8094`
+- Ollama (dependency): `127.0.0.1:11434`
+- Postgres: internal Docker service (`hatori-pg`), host exposure optional
 
 ### Ask (offline runtime)
 
@@ -123,6 +129,41 @@ Expected behavior:
 - Chat feedback buttons create `learning_events` linked via `related_interaction_id` (assistant interaction ID).
 - `/upload` stores files under `artefacts/uploads/`; `.txt`/`.md` also create chunk + vector rows in `embeddings`.
 
+### Launcher parity commands
+
+Desktop launchers should call make targets only (no direct `uvicorn` calls):
+
+`Launch Reply Hatori.command`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd /Users/moldovancsaba/Projects/reply-hatori
+[ -f "$HOME/.config/hatori/api.env" ] && source "$HOME/.config/hatori/api.env"
+colima start >/dev/null 2>&1 || true
+docker context use colima >/dev/null 2>&1 || true
+make up
+make run-ui-hatori
+```
+
+`Launch Reply Hatori API.command`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd /Users/moldovancsaba/Projects/reply-hatori
+source "$HOME/.config/hatori/api.env"
+colima start >/dev/null 2>&1 || true
+docker context use colima >/dev/null 2>&1 || true
+make up
+make run-api
+```
+
+Behavior guarantees:
+- Reuses already-running Hatori processes on `8093`/`8094`.
+- Refuses to start if a non-Hatori process owns the port (prints PID + CMD).
+- Never kills non-Hatori services.
+
 ## Notes
 
 - Current runtime mode is intentionally `OFFLINE`.
@@ -149,6 +190,10 @@ Expected behavior:
   - Verify `brew services start ollama`.
   - Verify local service responds on `http://127.0.0.1:11434/api/tags`.
   - Verify `HATORI_OLLAMA_MODEL` exists locally (`ollama list`).
+- Port busy for UI/API:
+  - Run `make stop` (stops only Hatori UI/API listeners).
+  - Re-run `make run-ui-hatori` or `make run-api`.
+  - If a non-Hatori process owns the port, Hatori refuses start and prints PID + CMD.
 
 ## API outcome loop (`{reply}` -> Hatori)
 
