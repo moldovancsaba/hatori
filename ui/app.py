@@ -61,6 +61,12 @@ def _esc_sql(s: str) -> str:
     return s.replace("\\", "\\\\").replace("'", "''")
 
 
+def _jsonb_sql_literal(value: dict) -> str:
+    raw = json.dumps(value, ensure_ascii=False)
+    tag = f"json_{uuid.uuid4().hex}"
+    return f"${tag}${raw}${tag}$::jsonb"
+
+
 def _h(s: str) -> str:
     return html.escape(s, quote=True)
 
@@ -83,10 +89,9 @@ def psql_json(sql: str) -> list[dict]:
 
 def insert_interaction(role: str, content: str, metadata: dict) -> str:
     iid = str(uuid.uuid4())
-    meta = _esc_sql(json.dumps(metadata, ensure_ascii=False))
     sql = (
         "INSERT INTO interaction_events (id, role, content, metadata) "
-        f"VALUES ('{iid}', '{_esc_sql(role)}', '{_esc_sql(content)}', '{meta}'::jsonb);"
+        f"VALUES ('{iid}', '{_esc_sql(role)}', '{_esc_sql(content)}', {_jsonb_sql_literal(metadata)});"
     )
     psql(sql)
     return iid
@@ -94,20 +99,18 @@ def insert_interaction(role: str, content: str, metadata: dict) -> str:
 
 def insert_learning(kind: str, confidence: str, details: dict, related_interaction_id: str) -> str:
     lid = str(uuid.uuid4())
-    det = _esc_sql(json.dumps(details, ensure_ascii=False))
     sql = (
         "INSERT INTO learning_events (id, kind, confidence, details, related_interaction_id) "
-        f"VALUES ('{lid}', '{_esc_sql(kind)}', '{_esc_sql(confidence)}', '{det}'::jsonb, '{_esc_sql(related_interaction_id)}');"
+        f"VALUES ('{lid}', '{_esc_sql(kind)}', '{_esc_sql(confidence)}', {_jsonb_sql_literal(details)}, '{_esc_sql(related_interaction_id)}');"
     )
     psql(sql)
     return lid
 
 
 def audit(action: str, target_type: str, target_id: str, details: dict) -> None:
-    det = _esc_sql(json.dumps(details, ensure_ascii=False))
     sql = (
         "INSERT INTO audit_events (id, actor, action, target_type, target_id, details) "
-        f"VALUES (gen_random_uuid(), 'ui', '{_esc_sql(action)}', '{_esc_sql(target_type)}', '{_esc_sql(target_id)}', '{det}'::jsonb);"
+        f"VALUES (gen_random_uuid(), 'ui', '{_esc_sql(action)}', '{_esc_sql(target_type)}', '{_esc_sql(target_id)}', {_jsonb_sql_literal(details)});"
     )
     psql(sql)
 
@@ -1230,7 +1233,7 @@ async def upload(file: UploadFile = File(...)) -> HTMLResponse:
     psql(
         "INSERT INTO artefacts (id, kind, uri, title, media_type, sha256, metadata) "
         f"VALUES ('{artefact_id}', 'file', '{_esc_sql(str(target))}', '{_esc_sql(original)}', "
-        f"'{_esc_sql(media_type)}', '{sha}', '{_esc_sql(json.dumps(metadata, ensure_ascii=False))}'::jsonb);"
+        f"'{_esc_sql(media_type)}', '{sha}', {_jsonb_sql_literal(metadata)});"
     )
     audit("upload", "artefact", artefact_id, {"path": str(target), "parse_status": parse_status, "size": size})
 
@@ -1254,7 +1257,7 @@ async def upload(file: UploadFile = File(...)) -> HTMLResponse:
             psql(
                 "INSERT INTO embeddings (id, artefact_id, chunk_id, content, embedding, metadata) "
                 f"VALUES ('{emb_id}', '{artefact_id}', '{_esc_sql(chunk_id)}', '{_esc_sql(chunk)}', "
-                f"'{emb_sql}'::vector, '{_esc_sql(json.dumps(cmeta, ensure_ascii=False))}'::jsonb);"
+                f"'{emb_sql}'::vector, {_jsonb_sql_literal(cmeta)});"
             )
             chunks_created += 1
 
@@ -1455,12 +1458,11 @@ def export_disk() -> RedirectResponse:
     path.write_text(payload, encoding="utf-8")
 
     artefact_id = psql("SELECT gen_random_uuid();").strip()
-    metadata = _esc_sql(json.dumps({"source": "ui", "export": "snapshot"}, ensure_ascii=False))
     uri = _esc_sql(str(path))
     title = _esc_sql(filename)
     psql(
         "INSERT INTO artefacts (id, kind, uri, title, media_type, metadata) "
-        f"VALUES ('{artefact_id}', 'export', '{uri}', '{title}', 'application/json', '{metadata}'::jsonb);"
+        f"VALUES ('{artefact_id}', 'export', '{uri}', '{title}', 'application/json', {_jsonb_sql_literal({'source': 'ui', 'export': 'snapshot'})});"
     )
     audit("export_snapshot", "artefact", artefact_id, {"uri": str(path)})
     return RedirectResponse(url="/pks/all", status_code=303)
