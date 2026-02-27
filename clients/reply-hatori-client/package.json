@@ -1,0 +1,14 @@
+{
+  "name": "reply-hatori-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo:ingest-respond": "node examples/demo_ingest_and_respond.ts",
+    "demo:outcome:sent": "node examples/demo_outcome_sent_as_is.ts",
+    "demo:outcome:edited": "node examples/demo_outcome_edited_then_sent.ts"
+  },
+  "dependencies": {
+    "diff": "^5.2.0"
+  }
+}

@@ -3,6 +3,8 @@ import json
 import os
 from pathlib import Path
 import re
+import tempfile
+import stat
 import subprocess
 import sys
 import uuid
@@ -49,6 +51,10 @@ def run_cli_json(args: list[str]) -> dict:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Invalid JSON from CLI for args={args}\nOUT:\n{proc.stdout}\nERR:\n{proc.stderr}") from exc
+
+
+def run_script(path: str, args: list[str], expect_ok: bool = True, env: dict | None = None) -> subprocess.CompletedProcess:
+    return run([path, *args], expect_ok=expect_ok, env=env)
 
 
 def db_scalar(sql: str) -> str:
@@ -1253,6 +1259,8 @@ def test_96_api_ingest_event_idempotent() -> None:
         iid1 = one.json().get("interaction_id")
         iid2 = two.json().get("interaction_id")
         assert_true(iid1 == iid2, "idempotent ingest should return same interaction_id for duplicate event_id")
+        assert_true(one.json().get("duplicate") is False, "first ingest should return duplicate=false")
+        assert_true(two.json().get("duplicate") is True, "second ingest should return duplicate=true")
         cnt = db_scalar(
             "SELECT count(*) FROM interaction_events "
             f"WHERE COALESCE(metadata->>'external_event_id','')='{event_id}' "
@@ -1573,6 +1581,95 @@ def test_104_api_outcome_rejects_missing_fields_when_edited() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
+def test_105_api_ingest_event_rejects_too_large_413() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        big_content = "x" * (205 * 1024)
+        out = client.post(
+            "/v1/ingest/event",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "external_event_id": "reply:big-105",
+                "kind": "doc",
+                "content": big_content,
+            },
+        )
+        assert_true(out.status_code == 413, "ingest/event should return 413 when content exceeds 200KB")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_106_api_rate_limit_respond_429() -> None:
+    old_token = os.environ.get("HATORI_API_TOKEN")
+    old_limit = os.environ.get("HATORI_RL_RESPOND_PER_MIN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token-rl"
+    os.environ["HATORI_RL_RESPOND_PER_MIN"] = "2"
+    try:
+        client = api_client()
+        for idx in range(2):
+            ok = client.post(
+                "/v1/agent/respond",
+                headers={"X-Hatori-Token": "golden-token-rl"},
+                json={
+                    "conversation_id": f"reply:rl-{idx}",
+                    "message_id": f"reply:rl-msg-{idx}",
+                    "message": "Szia! Rövid válasz?",
+                },
+            )
+            assert_true(ok.status_code == 200, "first two requests should pass under rate limit")
+        limited = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token-rl"},
+            json={
+                "conversation_id": "reply:rl-3",
+                "message_id": "reply:rl-msg-3",
+                "message": "Szia! Rövid válasz?",
+            },
+        )
+        assert_true(limited.status_code == 429, "third request should be rate limited")
+    finally:
+        if old_token is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old_token
+        if old_limit is None:
+            os.environ.pop("HATORI_RL_RESPOND_PER_MIN", None)
+        else:
+            os.environ["HATORI_RL_RESPOND_PER_MIN"] = old_limit
+
+
+def test_107_env_init_creates_file_with_permissions() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        env = dict(os.environ)
+        env["HOME"] = td
+        out = run_script("./tools/scripts/hatori_env_init.sh", [], expect_ok=True, env=env)
+        assert_true("hatori.env" in out.stdout, "env init should report env file path")
+        path = Path(td) / ".config" / "hatori" / "hatori.env"
+        assert_true(path.exists(), "env init should create ~/.config/hatori/hatori.env")
+        mode = stat.S_IMODE(path.stat().st_mode)
+        assert_true(mode == 0o600, f"hatori.env should be 600, got {oct(mode)}")
+
+
+def test_108_service_script_refuses_without_env() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        env = dict(os.environ)
+        env["HOME"] = td
+        res = run_script("./tools/scripts/hatori_service.sh", [], expect_ok=False, env=env)
+        assert_true(res.returncode != 0, "service script should fail when env file is missing")
+        txt = (res.stdout + res.stderr).lower()
+        assert_true("missing env file" in txt, "service script should explain missing env file")
+
+
+def test_109_makefile_run_uses_ensure_service_port() -> None:
+    source = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert_true("ensure_service_port.sh" in source, "Makefile run targets should use ensure_service_port.sh")
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1672,6 +1769,11 @@ def collect_tests() -> list:
         test_102_api_outcome_idempotency_blocks_duplicates,
         test_103_api_outcome_requires_token_401,
         test_104_api_outcome_rejects_missing_fields_when_edited,
+        test_105_api_ingest_event_rejects_too_large_413,
+        test_106_api_rate_limit_respond_429,
+        test_107_env_init_creates_file_with_permissions,
+        test_108_service_script_refuses_without_env,
+        test_109_makefile_run_uses_ensure_service_port,
     ]
 
 
@@ -1682,8 +1784,14 @@ def main() -> None:
 
     old_model = os.environ.get("HATORI_MODEL")
     old_api_token = os.environ.get("HATORI_API_TOKEN")
+    old_rl_respond = os.environ.get("HATORI_RL_RESPOND_PER_MIN")
+    old_rl_ingest = os.environ.get("HATORI_RL_INGEST_PER_MIN")
+    old_rl_outcome = os.environ.get("HATORI_RL_OUTCOME_PER_MIN")
     os.environ["HATORI_MODEL"] = "none"
     os.environ["HATORI_API_TOKEN"] = "golden-token"
+    os.environ["HATORI_RL_RESPOND_PER_MIN"] = "10000"
+    os.environ["HATORI_RL_INGEST_PER_MIN"] = "10000"
+    os.environ["HATORI_RL_OUTCOME_PER_MIN"] = "10000"
     try:
         run(["./tools/scripts/db_reset.sh"], expect_ok=True)
         ingest_fixture(FIXTURE)
@@ -1713,6 +1821,18 @@ def main() -> None:
             os.environ.pop("HATORI_API_TOKEN", None)
         else:
             os.environ["HATORI_API_TOKEN"] = old_api_token
+        if old_rl_respond is None:
+            os.environ.pop("HATORI_RL_RESPOND_PER_MIN", None)
+        else:
+            os.environ["HATORI_RL_RESPOND_PER_MIN"] = old_rl_respond
+        if old_rl_ingest is None:
+            os.environ.pop("HATORI_RL_INGEST_PER_MIN", None)
+        else:
+            os.environ["HATORI_RL_INGEST_PER_MIN"] = old_rl_ingest
+        if old_rl_outcome is None:
+            os.environ.pop("HATORI_RL_OUTCOME_PER_MIN", None)
+        else:
+            os.environ["HATORI_RL_OUTCOME_PER_MIN"] = old_rl_outcome
 
 
 if __name__ == "__main__":

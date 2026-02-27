@@ -4,9 +4,13 @@ import ipaddress
 import uuid
 import mimetypes
 import hashlib
+import time
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from collections import defaultdict
+from collections import deque
 
 from fastapi import FastAPI
 from fastapi import File
@@ -49,6 +53,53 @@ def require_token(x_hatori_token: str | None = Header(default=None, alias="X-Hat
     expected = (os.environ.get("HATORI_API_TOKEN") or "").strip()
     if not expected or x_hatori_token != expected:
         raise HTTPException(status_code=401, detail="unauthorized")
+
+
+class _RateLimiter:
+    def __init__(self) -> None:
+        self.window_s = 60.0
+        self._lock = threading.Lock()
+        self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+
+    def hit(self, endpoint: str, token: str, limit: int) -> None:
+        now = time.time()
+        key = (endpoint, token)
+        with self._lock:
+            q = self._hits[key]
+            while q and now - q[0] > self.window_s:
+                q.popleft()
+            if len(q) >= limit:
+                raise HTTPException(status_code=429, detail="rate_limited")
+            q.append(now)
+
+    def counts_last_minute(self) -> dict[str, int]:
+        now = time.time()
+        out: dict[str, int] = {}
+        with self._lock:
+            for (endpoint, _token), q in self._hits.items():
+                while q and now - q[0] > self.window_s:
+                    q.popleft()
+                out[endpoint] = out.get(endpoint, 0) + len(q)
+        return out
+
+
+_RATE_LIMITER = _RateLimiter()
+
+
+def _require_token_value(x_hatori_token: str | None) -> str:
+    expected = (os.environ.get("HATORI_API_TOKEN") or "").strip()
+    if not expected or x_hatori_token != expected:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return x_hatori_token
+
+
+def _enforce_rate(endpoint: str, token: str) -> None:
+    limits = {
+        "respond": int((os.environ.get("HATORI_RL_RESPOND_PER_MIN") or "30").strip()),
+        "ingest": int((os.environ.get("HATORI_RL_INGEST_PER_MIN") or "120").strip()),
+        "outcome": int((os.environ.get("HATORI_RL_OUTCOME_PER_MIN") or "120").strip()),
+    }
+    _RATE_LIMITER.hit(endpoint=endpoint, token=token, limit=limits[endpoint])
 
 
 def _model_status() -> tuple[str, str]:
@@ -456,12 +507,14 @@ def health() -> dict[str, Any]:
         "db": db,
         "model": model,
         "model_name": model_name,
+        "request_counts_last_minute": _RATE_LIMITER.counts_last_minute(),
     }
 
 
 @app.post("/v1/agent/respond")
 def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token")) -> dict[str, Any]:
-    require_token(x_hatori_token)
+    token = _require_token_value(x_hatori_token)
+    _enforce_rate("respond", token)
     message = body.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
@@ -584,7 +637,8 @@ def agent_feedback(body: FeedbackBody, x_hatori_token: str | None = Header(defau
 
 @app.post("/v1/agent/outcome")
 def agent_outcome(body: OutcomeBody, x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token")) -> dict[str, Any]:
-    require_token(x_hatori_token)
+    token = _require_token_value(x_hatori_token)
+    _enforce_rate("outcome", token)
     external_outcome_id = (body.external_outcome_id or "").strip()
     if not external_outcome_id:
         raise HTTPException(status_code=400, detail="external_outcome_id is required")
@@ -675,7 +729,8 @@ def agent_outcome(body: OutcomeBody, x_hatori_token: str | None = Header(default
 
 @app.post("/v1/ingest/event")
 def ingest_event(body: IngestBody, x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token")) -> dict[str, Any]:
-    require_token(x_hatori_token)
+    token = _require_token_value(x_hatori_token)
+    _enforce_rate("ingest", token)
     event_id = (body.external_event_id or body.event_id or "").strip()
     if not event_id:
         raise HTTPException(status_code=400, detail="external_event_id is required")
@@ -686,45 +741,16 @@ def ingest_event(body: IngestBody, x_hatori_token: str | None = Header(default=N
     existing = _interaction_id_by_external_event_id(event_id, "reply.ingest_event")
     if existing:
         existing_artefact = _artifact_id_by_external_event_id(event_id, "reply.ingest_event")
-        return {"stored": True, "interaction_id": existing, "artefact_id": existing_artefact or None}
+        return {"stored": True, "interaction_id": existing, "artefact_id": existing_artefact or None, "duplicate": True}
 
     conversation_id = _conversation_id(body.conversation_id)
     role = "user" if body.kind in {"email", "imessage"} else "system"
-    if len(content.encode("utf-8")) <= 200 * 1024:
-        interaction_id = ui.insert_interaction(
-            role,
-            content,
-            {
-                "source": "reply.ingest_event",
-                "external_event_id": event_id,
-                "kind": body.kind,
-                "chat_id": conversation_id,
-                "conversation_id": conversation_id,
-                "sender_id": body.sender_id or "",
-                "metadata": body.metadata or {},
-            },
-        )
-        return {"stored": True, "interaction_id": interaction_id, "artefact_id": None}
-
-    INGEST_API_DIR.mkdir(parents=True, exist_ok=True)
-    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    safe_name = f"{ts}__{body.kind}_{event_id}.txt".replace("/", "_")
-    stored_path = INGEST_API_DIR / safe_name
-    stored_path.write_text(content, encoding="utf-8")
-    artefact_id, _sha, _chunks = _ingest_file_to_artefact(
-        source="reply.ingest_event",
-        external_event_id=event_id,
-        kind=body.kind,
-        file_path=stored_path,
-        media_type="text/plain",
-        provided_sha256=None,
-        conversation_id=conversation_id,
-        sender_id=body.sender_id,
-        metadata=body.metadata or {},
-    )
+    content_size = len(content.encode("utf-8"))
+    if content_size > 200 * 1024:
+        raise HTTPException(status_code=413, detail="content too large for /v1/ingest/event; use /v1/artefacts/upload")
     interaction_id = ui.insert_interaction(
         role,
-        "Nagy tartalom beérkezett; artefactként eltárolva és feldolgozva.",
+        content,
         {
             "source": "reply.ingest_event",
             "external_event_id": event_id,
@@ -732,11 +758,10 @@ def ingest_event(body: IngestBody, x_hatori_token: str | None = Header(default=N
             "chat_id": conversation_id,
             "conversation_id": conversation_id,
             "sender_id": body.sender_id or "",
-            "artefact_id": artefact_id,
             "metadata": body.metadata or {},
         },
     )
-    return {"stored": True, "interaction_id": interaction_id, "artefact_id": artefact_id}
+    return {"stored": True, "interaction_id": interaction_id, "artefact_id": None, "duplicate": False}
 
 
 @app.post("/v1/artefacts/upload")

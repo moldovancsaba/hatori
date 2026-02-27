@@ -8,6 +8,19 @@ make up
 make reset
 ```
 
+Single background install (auto-start on login):
+
+```bash
+make install-service
+make service-status
+```
+
+One-command foreground run (local terminal):
+
+```bash
+make run
+```
+
 ## Validate baseline
 
 ```bash
@@ -99,6 +112,7 @@ Open:
 - `http://127.0.0.1:8093/chat`
 - `http://127.0.0.1:8093/upload`
 - `http://127.0.0.1:8093/search`
+- API health: `http://127.0.0.1:8094/v1/health`
 
 Expected behavior:
 - `/chat/send` creates user + assistant `interaction_events` scoped by `metadata.chat_id`.
@@ -131,6 +145,14 @@ Expected behavior:
   - Verify `brew services start ollama`.
   - Verify local service responds on `http://127.0.0.1:11434/api/tags`.
   - Verify `HATORI_OLLAMA_MODEL` exists locally (`ollama list`).
+- Port busy for UI/API:
+  - Run `make stop` (stops only Hatori listeners).
+  - Re-run `make run` or `make install-service`.
+  - If a non-Hatori process owns the port, startup refuses and prints PID + CMD (no forced kill).
+- Service logs:
+  - `make service-logs`
+- Reply integration smoke:
+  - `make reply-smoke`
 
 ## API outcome loop (`{reply}` -> Hatori)
 
