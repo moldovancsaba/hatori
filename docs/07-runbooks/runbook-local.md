@@ -3,7 +3,7 @@
 ## Start services
 
 ```bash
-cd /Users/moldovancsaba/Projects/reply-hatori
+cd /Users/moldovancsaba/Projects/hatori
 make up
 make reset
 ```
@@ -14,6 +14,21 @@ Single background install (auto-start on login):
 make install-service
 make service-status
 ```
+
+Menu bar control app (health + stop/restart/quit):
+
+```bash
+make install-menubar-app
+make run-menubar-app
+```
+
+Installed app location:
+- `~/Applications/HatoriMenu.app`
+
+To auto-start the menu bar app on login:
+1. Open macOS `System Settings`
+2. Go to `General` -> `Login Items`
+3. Click `+` and select `~/Applications/HatoriMenu.app`
 
 One-command foreground run (local terminal):
 
@@ -146,23 +161,23 @@ Expected behavior:
   - Verify local service responds on `http://127.0.0.1:11434/api/tags`.
   - Verify `HATORI_OLLAMA_MODEL` exists locally (`ollama list`).
 - Port busy for UI/API:
-  - Run `make stop` (stops only Hatori listeners).
+  - Run `make stop` (stops only {hatori} listeners).
   - Re-run `make run` or `make install-service`.
-  - If a non-Hatori process owns the port, startup refuses and prints PID + CMD (no forced kill).
+  - If a non-{hatori} process owns the port, startup refuses and prints PID + CMD (no forced kill).
 - Service logs:
   - `make service-logs`
 - Reply integration smoke:
   - `make reply-smoke`
 
-## API outcome loop (`{reply}` -> Hatori)
+## API outcome loop (`{reply}` -> {hatori})
 
 Load token:
 
 ```bash
-source ~/.config/hatori/api.env
+source ~/.config/hatori/hatori.env
 ```
 
-Ask Hatori:
+Ask {hatori}:
 
 ```bash
 RESP=$(curl -s -X POST http://127.0.0.1:8094/v1/agent/respond \

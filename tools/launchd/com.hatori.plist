@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.reply.hatori</string>
+  <string>com.hatori</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -16,8 +16,8 @@
     <string>__REPO_ROOT__/tools/scripts/hatori_service.sh</string>
   </array>
   <key>StandardOutPath</key>
-  <string>__HOME__/Library/Logs/ReplyHatori/hatori.log</string>
+  <string>__HOME__/Library/Logs/Hatori/hatori.log</string>
   <key>StandardErrorPath</key>
-  <string>__HOME__/Library/Logs/ReplyHatori/hatori.log</string>
+  <string>__HOME__/Library/Logs/Hatori/hatori.log</string>
 </dict>
 </plist>

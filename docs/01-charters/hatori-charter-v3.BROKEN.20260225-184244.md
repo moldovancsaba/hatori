@@ -1,6 +1,6 @@
-# Hatori Charter v3 (System / Operating Charter)
+# {hatori} Charter v3 (System / Operating Charter)
 
-> This document is the behavioural source of truth for Hatori.
+> This document is the behavioural source of truth for {hatori}.
 
 ```text
 V3 MASTER PROMPT — OFFLINE-FIRST, OPEN-SOURCE, LLM-SWAPPABLE, FEEDBACK-LEARNING PERSONAL AGENT CHARTER

@@ -5,7 +5,7 @@ TASK:
 Implement: <feature>.
 
 Context:
-- Repo: reply-hatori
+- Repo: hatori
 - Current stack: Docker Postgres (pgvector), CLI (hatori/cli.py), UI (ui/app.py), scripts in tools/scripts, Makefile targets.
 
 Acceptance criteria:

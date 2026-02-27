@@ -1,6 +1,6 @@
 # Roadmap
 
-This repo implements **Hatori**, a local, offline-first, open-source personal agent with an auditable PKS and LLM-swappable runtime.
+This repo implements **{hatori}**, a local, offline-first, open-source personal agent with an auditable PKS and LLM-swappable runtime.
 
 ## Guiding constraints
 - **Truth > fluency**

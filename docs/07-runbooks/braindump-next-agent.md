@@ -3,11 +3,11 @@
 Last updated: 2026-02-27
 
 ## Current state
-- Repo: `/Users/moldovancsaba/Projects/reply-hatori`
+- Repo: `/Users/moldovancsaba/Projects/hatori`
 - Branch: `sprint-05-daily-planning-golden`
 - HEAD: `c86928b`
-- Open PR: `#4` https://github.com/moldovancsaba/reply-hatori/pull/4
-- CI (latest push): green https://github.com/moldovancsaba/reply-hatori/actions/runs/22484817404
+- Open PR: `#4` https://github.com/moldovancsaba/hatori/pull/4
+- CI (latest push): green https://github.com/moldovancsaba/hatori/actions/runs/22484817404
 
 ## What is already done
 - Chat quality rails:
@@ -16,7 +16,7 @@ Last updated: 2026-02-27
   - structured planning path (`generation_path=planning_structured`) with server-rendered template
 - UTF-8 hardening:
   - `tools/scripts/db_psql.sh` exports UTF-8 client encoding and locale defaults
-- Local Hatori API (localhost-only):
+- Local {hatori} API (localhost-only):
   - new service: `api/app.py`
   - endpoints: `/v1/health`, `/v1/agent/respond`, `/v1/agent/feedback`, `/v1/ingest/event`, `/v1/search`
   - token auth for POST via `X-Hatori-Token` and `HATORI_API_TOKEN`
@@ -42,9 +42,9 @@ Last updated: 2026-02-27
 
 ## Next-agent prompt (copy/paste)
 You are a developer agent working on repo:
-  /Users/moldovancsaba/Projects/reply-hatori
+  /Users/moldovancsaba/Projects/hatori
 Remote:
-  https://github.com/moldovancsaba/reply-hatori.git
+  https://github.com/moldovancsaba/hatori.git
 Branch to continue:
   sprint-05-daily-planning-golden
 Baseline commit:

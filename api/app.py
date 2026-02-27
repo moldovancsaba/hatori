@@ -28,7 +28,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 VERSION_FILE = ROOT_DIR / "VERSION"
 INGEST_API_DIR = ROOT_DIR / "artefacts" / "ingest_api"
 UPLOADS_API_DIR = ROOT_DIR / "artefacts" / "uploads_api"
-app = FastAPI(title="Hatori API", version=VERSION_FILE.read_text(encoding="utf-8").strip())
+app = FastAPI(title="{hatori} API", version=VERSION_FILE.read_text(encoding="utf-8").strip())
 
 
 def _validate_bind_policy() -> None:

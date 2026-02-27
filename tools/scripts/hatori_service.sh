@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="$HOME/.config/hatori/hatori.env"
-LOG_DIR="$HOME/Library/Logs/ReplyHatori"
+LOG_DIR="$HOME/Library/Logs/Hatori"
 mkdir -p "$LOG_DIR"
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
@@ -56,12 +56,10 @@ start_one() {
   pid="$(printf '%s\n' "$owner" | sed -n 's/^PID=\([0-9][0-9]*\).*/\1/p')"
   owner_cmd="$(printf '%s\n' "$owner" | sed -n 's/^PID=[0-9][0-9]* CMD=//p')"
   if "$ROOT/tools/scripts/is_hatori_pid.sh" "$pid" "$kind"; then
-    log "[$kind] already running pid=$pid on port $port"
     return 0
   fi
 
-  log "[$kind] foreign process owns port $port pid=${pid:-unknown}; will retry in 60s"
-  log "[$kind] foreign cmd: ${owner_cmd:-unknown}"
+  log "[$kind] foreign process owns port $port pid=${pid:-unknown}; cmd=${owner_cmd:-unknown}; retry in 60s"
   return 2
 }
 
@@ -75,12 +73,21 @@ fi
 
 api_backoff=1
 ui_backoff=1
+last_api=""
+last_ui=""
 while true; do
   if start_one api "$API_PORT" ". $ROOT/.venv/bin/activate && HATORI_API_TOKEN=\${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host 127.0.0.1 --port $API_PORT"; then
+    api_owner="$($ROOT/tools/scripts/port_owner.sh "$API_PORT" 2>/dev/null || true)"
+    api_state="api:${api_owner}"
+    if [ "$api_state" != "$last_api" ]; then
+      log "[api] state: ${api_owner:-unknown}"
+      last_api="$api_state"
+    fi
     api_backoff=1
   else
     rc=$?
     if [ "$rc" -eq 2 ]; then
+      last_api="api:foreign"
       sleep 60
     else
       sleep "$api_backoff"
@@ -89,10 +96,17 @@ while true; do
   fi
 
   if start_one ui "$UI_PORT" ". $ROOT/.venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $UI_PORT"; then
+    ui_owner="$($ROOT/tools/scripts/port_owner.sh "$UI_PORT" 2>/dev/null || true)"
+    ui_state="ui:${ui_owner}"
+    if [ "$ui_state" != "$last_ui" ]; then
+      log "[ui] state: ${ui_owner:-unknown}"
+      last_ui="$ui_state"
+    fi
     ui_backoff=1
   else
     rc=$?
     if [ "$rc" -eq 2 ]; then
+      last_ui="ui:foreign"
       sleep 60
     else
       sleep "$ui_backoff"

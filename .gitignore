@@ -26,3 +26,6 @@ logs/**/*.log
 # Editor/IDE
 .vscode/
 .idea/
+
+artefacts/uploads/
+artefacts/uploads_api/

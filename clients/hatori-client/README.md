@@ -1,4 +1,4 @@
-# reply-hatori-client
+# hatori-client
 
 Environment:
 - `HATORI_BASE_URL` (default `http://127.0.0.1:8094`)

@@ -776,7 +776,7 @@ def render_chat_default_output(
 
 def layout(title: str, inner: str) -> str:
     nav = (
-        "<div class='top'><div class='brand'>Hatori</div><div class='nav'>"
+        "<div class='top'><div class='brand'>{hatori}</div><div class='nav'>"
         "<a href='/chat'>Chat</a>"
         "<a href='/upload'>Upload</a>"
         "<a href='/search'>Search</a>"
@@ -796,7 +796,7 @@ def layout(title: str, inner: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
-    return HTMLResponse(layout("Hatori", "<div class='card'><p>Local dashboard.</p></div>"))
+    return HTMLResponse(layout("{hatori}", "<div class='card'><p>Local dashboard.</p></div>"))
 
 
 @app.get("/chat/new")

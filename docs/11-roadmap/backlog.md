@@ -86,7 +86,7 @@ This is the actionable backlog that turns the Charter into deliverable work.
 ## Epic F — Chat UI with feedback annotations (Sprint 04)
 
 ### F1. Chat screen (`/chat`)
-**Story:** As Sultan, I want a local chat timeline where I can send messages and see Hatori replies.
+**Story:** As Sultan, I want a local chat timeline where I can send messages and see {hatori} replies.
 
 **Acceptance**
 - `GET /chat` renders user+assistant timeline for a `chat_id` (default `main`)

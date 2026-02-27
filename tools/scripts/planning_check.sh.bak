@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-cd /Users/moldovancsaba/Projects/reply-hatori
+cd /Users/moldovancsaba/Projects/hatori
 
 echo "== Hatori planning check ==" 
 

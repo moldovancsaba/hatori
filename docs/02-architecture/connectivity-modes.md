@@ -1,6 +1,6 @@
 # Connectivity Modes
 
-Hatori must always operate in one of:
+{hatori} must always operate in one of:
 - OFFLINE
 - ONLINE-UNVERIFIED
 - ONLINE-VERIFIED

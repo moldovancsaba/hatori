@@ -1,19 +1,19 @@
 # Developer Handoff Runbook
 
-This runbook is for onboarding a developer/developer-agent to the Hatori repo.
+This runbook is for onboarding a developer/developer-agent to the {hatori} repo.
 
 ## Current handover snapshot
 - Active branch: `sprint-05-daily-planning-golden`
 - Head commit: `c86928b`
-- Open PR: https://github.com/moldovancsaba/reply-hatori/pull/4
-- Latest CI run: https://github.com/moldovancsaba/reply-hatori/actions/runs/22484817404
+- Open PR: https://github.com/moldovancsaba/hatori/pull/4
+- Latest CI run: https://github.com/moldovancsaba/hatori/actions/runs/22484817404
 - Dedicated ports:
   - UI: `8093` (localhost)
   - API: `8094` (localhost)
 - Continuation notes: `docs/07-runbooks/braindump-next-agent.md`
 
 ## Repo
-- Path (local): `/Users/moldovancsaba/Projects/reply-hatori`
+- Path (local): `/Users/moldovancsaba/Projects/hatori`
 
 ## Canonical policy & prompts
 - Charter (highest authority): `docs/01-charters/hatori-charter-v3.md`
@@ -37,15 +37,15 @@ docker context use colima
 docker ps
 ```
 
-## Bring up Hatori DB container
+## Bring up {hatori} DB container
 ```bash
-cd /Users/moldovancsaba/Projects/reply-hatori
+cd /Users/moldovancsaba/Projects/hatori
 make up
 ```
 
 ## One-command health check
 ```bash
-cd /Users/moldovancsaba/Projects/reply-hatori
+cd /Users/moldovancsaba/Projects/hatori
 ./tools/scripts/planning_check.sh
 ```
 Expected end state:
@@ -59,7 +59,7 @@ Expected end state:
 Run in order:
 
 ```bash
-cd /Users/moldovancsaba/Projects/reply-hatori
+cd /Users/moldovancsaba/Projects/hatori
 git pull --ff-only
 git status -sb
 ```
@@ -112,7 +112,7 @@ Expected:
 ## Run UI (local dashboard)
 Prereq: venv created and deps installed (see `ui/requirements.txt`).
 ```bash
-cd /Users/moldovancsaba/Projects/reply-hatori
+cd /Users/moldovancsaba/Projects/hatori
 make run-ui
 ```
 Open:
@@ -129,7 +129,7 @@ docker ps -a --format '{{.Names}}' | grep -qx hatori-pg && docker start hatori-p
 
 ### Full reset (DB schema + seed)
 ```bash
-cd /Users/moldovancsaba/Projects/reply-hatori
+cd /Users/moldovancsaba/Projects/hatori
 make reset
 make test
 ```
@@ -168,9 +168,9 @@ Use this prompt as-is for the next developer agent:
 
 ```text
 You are a developer agent working on repo:
-  /Users/moldovancsaba/Projects/reply-hatori
+  /Users/moldovancsaba/Projects/hatori
 Remote:
-  https://github.com/moldovancsaba/reply-hatori.git
+  https://github.com/moldovancsaba/hatori.git
 Branch to continue:
   sprint-05-daily-planning-golden
 Baseline commit:

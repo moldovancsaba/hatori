@@ -1,7 +1,7 @@
-# Hatori (Local, Offline-First Agent)
+# {hatori} (Local, Offline-First Agent)
 
 ## Goal
-Build a long-lived personal agent ("Hatori") that:
+Build a long-lived personal agent ("{hatori}") that:
 - runs fully locally and continues operating offline,
 - uses only open-source components,
 - maintains an auditable, modular PKS (Personal Knowledge System),
@@ -31,6 +31,18 @@ Build a long-lived personal agent ("Hatori") that:
 - `python -m hatori.cli consistency-check [--subset N] [--json]`
 - `python -m hatori.cli model-smoke "<prompt>"`
 - Golden tests: `python tests/golden/run_golden.py` (also wired into `make test`)
+
+## Runtime Service (current)
+- Single-stack foreground launch:
+  - `make run`
+- Background auto-start service (macOS LaunchAgent):
+  - `make install-service`
+  - `make service-status`
+  - `make service-logs`
+- Safe stop ({hatori}-only listeners):
+  - `make stop`
+- Reply loop smoke:
+  - `make reply-smoke`
 
 ## POC loop (Sprint 03)
 - `make up`
@@ -111,8 +123,12 @@ Build a long-lived personal agent ("Hatori") that:
 - Sprint 01: docs/11-roadmap/sprint-01.md
 
 ## Release
-- Current stable release: `v0.5.0`
+- Current stable release: `v0.6.0`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
+
+## API Contract
+- Canonical external contract:
+  - `docs/10-api-contracts/hatori-api-v1.md`
 
 ## Prompt Pack
 - Builder system prompt: docs/09-prompts/builder-system.md

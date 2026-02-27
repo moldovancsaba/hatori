@@ -64,31 +64,39 @@ stop:
 .PHONY: install-service
 install-service:
 	./tools/scripts/hatori_env_init.sh
-	@mkdir -p "$$HOME/Library/LaunchAgents" "$$HOME/Library/Logs/ReplyHatori"
-	@python3 -c 'from pathlib import Path; home=Path.home(); repo=Path.cwd(); template=(repo / "tools" / "launchd" / "com.reply.hatori.plist").read_text(encoding="utf-8"); out=template.replace("__HOME__", str(home)).replace("__REPO_ROOT__", str(repo)); target=home / "Library" / "LaunchAgents" / "com.reply.hatori.plist"; target.write_text(out, encoding="utf-8"); print("Wrote", target)'
-	@launchctl unload "$$HOME/Library/LaunchAgents/com.reply.hatori.plist" >/dev/null 2>&1 || true
-	@launchctl load -w "$$HOME/Library/LaunchAgents/com.reply.hatori.plist"
-	@echo "Service installed: com.reply.hatori"
+	@mkdir -p "$$HOME/Library/LaunchAgents" "$$HOME/Library/Logs/Hatori"
+	@python3 -c 'from pathlib import Path; home=Path.home(); repo=Path.cwd(); template=(repo / "tools" / "launchd" / "com.hatori.plist").read_text(encoding="utf-8"); out=template.replace("__HOME__", str(home)).replace("__REPO_ROOT__", str(repo)); target=home / "Library" / "LaunchAgents" / "com.hatori.plist"; target.write_text(out, encoding="utf-8"); print("Wrote", target)'
+	@launchctl unload "$$HOME/Library/LaunchAgents/com.hatori.plist" >/dev/null 2>&1 || true
+	@launchctl load -w "$$HOME/Library/LaunchAgents/com.hatori.plist"
+	@echo "Service installed: com.hatori"
 
 .PHONY: uninstall-service
 uninstall-service:
-	@launchctl unload "$$HOME/Library/LaunchAgents/com.reply.hatori.plist" >/dev/null 2>&1 || true
-	@rm -f "$$HOME/Library/LaunchAgents/com.reply.hatori.plist"
-	@echo "Service removed: com.reply.hatori"
+	@launchctl unload "$$HOME/Library/LaunchAgents/com.hatori.plist" >/dev/null 2>&1 || true
+	@rm -f "$$HOME/Library/LaunchAgents/com.hatori.plist"
+	@echo "Service removed: com.hatori"
 
 .PHONY: service-status
 service-status:
-	@launchctl list | grep com.reply.hatori || echo "com.reply.hatori not loaded"
+	@launchctl list | grep com.hatori || echo "com.hatori not loaded"
 	@curl -fsS "http://127.0.0.1:$${API_PORT:-8094}/v1/health" >/dev/null 2>&1 && echo "API health: ok" || echo "API health: unavailable"
 	@curl -fsS "http://127.0.0.1:$${UI_PORT:-8093}/chat" >/dev/null 2>&1 && echo "UI health: ok" || echo "UI health: unavailable"
 
 .PHONY: service-logs
 service-logs:
-	@tail -n 200 "$$HOME/Library/Logs/ReplyHatori/hatori.log"
+	@tail -n 200 "$$HOME/Library/Logs/Hatori/hatori.log"
 
 .PHONY: reply-smoke
 reply-smoke:
 	./tools/scripts/reply_smoke.sh
+
+.PHONY: install-menubar-app
+install-menubar-app:
+	./tools/macos/HatoriMenu/install_menubar_app.sh
+
+.PHONY: run-menubar-app
+run-menubar-app:
+	open "$$HOME/Applications/HatoriMenu.app"
 
 .PHONY: up
 up:

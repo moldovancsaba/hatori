@@ -1,12 +1,15 @@
-# Reply <-> Hatori Integration
+# Reply <-> {hatori} Integration
+
+Canonical API contract:
+- `docs/10-api-contracts/hatori-api-v1.md`
 
 ## End-to-end loop
 
-1. Ingest message/context into Hatori
+1. Ingest message/context into {hatori}
 - `POST /v1/ingest/event`
 - required: `external_event_id`
 
-2. Ask Hatori for a reply
+2. Ask {hatori} for a reply
 - `POST /v1/agent/respond`
 - returns `assistant_message`, `assistant_interaction_id`
 

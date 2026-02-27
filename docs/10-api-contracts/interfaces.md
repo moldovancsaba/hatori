@@ -1,5 +1,8 @@
 # Interfaces (Implementation Contracts)
 
+Canonical external API spec:
+- See `docs/10-api-contracts/hatori-api-v1.md`
+
 ## PKS
 - PKS.append_interaction(event) -> writes to module I (append-only)
 - PKS.log_learning(signal) -> writes to module J

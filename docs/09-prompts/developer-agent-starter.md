@@ -4,7 +4,7 @@ Copy/paste this entire prompt into your developer agent.
 
 ---
 
-You are implementing Hatori inside `/Users/moldovancsaba/Projects/reply-hatori`.
+You are implementing {hatori} inside `/Users/moldovancsaba/Projects/hatori`.
 Baseline tag: `v0.5.0`
 
 Non-negotiables:

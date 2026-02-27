@@ -1,0 +1,192 @@
+import AppKit
+import Foundation
+import CoreText
+
+final class MenuApp: NSObject, NSApplicationDelegate {
+    private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let menu = NSMenu()
+    private let healthItem = NSMenuItem(title: "Health: checking...", action: nil, keyEquivalent: "")
+    private let detailItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private var timer: Timer?
+    private let repoRoot = "__REPO_ROOT__"
+    private var iconFont: NSFont?
+    private var uiPort = "8093"
+    private var apiPort = "8094"
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        loadPortsFromEnv()
+        configureMenuBarIcon()
+
+        healthItem.isEnabled = false
+        detailItem.isEnabled = false
+
+        menu.addItem(healthItem)
+        menu.addItem(detailItem)
+        menu.addItem(NSMenuItem.separator())
+
+        menu.addItem(item("Open UI", #selector(openUI)))
+        menu.addItem(item("Open API Health", #selector(openAPIHealth)))
+        menu.addItem(item("Reply Smoke", #selector(runReplySmoke)))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(item("Restart Service", #selector(restartService)))
+        menu.addItem(item("Stop Service", #selector(stopService)))
+        menu.addItem(item("Start/Install Service", #selector(installService)))
+        menu.addItem(item("Service Logs", #selector(openLogs)))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(item("Quit", #selector(quitApp)))
+
+        statusItem.menu = menu
+        refreshHealth()
+        timer = Timer.scheduledTimer(timeInterval: 5.0, target: self, selector: #selector(refreshHealth), userInfo: nil, repeats: true)
+    }
+
+    private func loadPortsFromEnv() {
+        let envPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/hatori/hatori.env").path
+        guard let text = try? String(contentsOfFile: envPath, encoding: .utf8) else { return }
+        for rawLine in text.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map(String.init)
+            if parts.count != 2 { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespaces)
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            if key == "UI_PORT", !value.isEmpty { uiPort = value }
+            if key == "API_PORT", !value.isEmpty { apiPort = value }
+        }
+    }
+
+    private func configureMenuBarIcon() {
+        guard let button = statusItem.button else { return }
+        let bundled = Bundle.main.url(forResource: "MaterialSymbolsOutlined", withExtension: "ttf")
+        let fontURL = bundled ?? URL(fileURLWithPath: repoRoot)
+            .appendingPathComponent("tools/macos/HatoriMenu/MaterialSymbolsOutlined.ttf")
+        if FileManager.default.fileExists(atPath: fontURL.path) {
+            CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)
+        }
+        if let font = NSFont(name: "Material Symbols Outlined", size: 18) {
+            iconFont = font
+            button.imagePosition = .imageOnly
+            button.image = makeGlyphImage(font: font, color: .labelColor)
+            return
+        }
+        button.title = "H"
+    }
+
+    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
+        let m = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        m.target = self
+        return m
+    }
+
+    private func runShell(_ command: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = ["-lc", "cd \(repoRoot) && \(command)"]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+        } catch {
+            healthItem.title = "Health: command failed"
+            detailItem.title = "Failed to run: \(command)"
+        }
+    }
+
+    @objc private func refreshHealth() {
+        guard let url = URL(string: "http://127.0.0.1:\(apiPort)/v1/health") else { return }
+        let task = URLSession.shared.dataTask(with: url) { data, response, _ in
+            DispatchQueue.main.async {
+                guard
+                    let http = response as? HTTPURLResponse,
+                    http.statusCode == 200,
+                    let data = data,
+                    let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else {
+                    self.updateIconColor(isUp: false)
+                    self.healthItem.title = "Health: API down"
+                    self.detailItem.title = "UI: http://127.0.0.1:\(self.uiPort)/chat"
+                    return
+                }
+
+                let db = (obj["db"] as? String) ?? "unknown"
+                let model = (obj["model"] as? String) ?? "unknown"
+                self.updateIconColor(isUp: true)
+                self.healthItem.title = "Health: API up"
+                self.detailItem.title = "DB: \(db)  Model: \(model)"
+            }
+        }
+        task.resume()
+    }
+
+    private func updateIconColor(isUp: Bool) {
+        guard let button = statusItem.button else { return }
+        guard let font = iconFont else { return }
+        let color: NSColor = isUp ? .labelColor : .systemRed
+        button.imagePosition = .imageOnly
+        button.image = makeGlyphImage(font: font, color: color)
+    }
+
+    private func makeGlyphImage(font: NSFont, color: NSColor) -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size)
+        image.lockFocus()
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: color
+        ]
+        let glyph = NSString(string: "comment")
+        let textSize = glyph.size(withAttributes: attrs)
+        let rect = NSRect(
+            x: (size.width - textSize.width) / 2.0,
+            y: (size.height - textSize.height) / 2.0 - 0.5,
+            width: textSize.width,
+            height: textSize.height
+        )
+        glyph.draw(in: rect, withAttributes: attrs)
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
+    }
+
+    @objc private func openUI() {
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(uiPort)/chat")!)
+    }
+
+    @objc private func openAPIHealth() {
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(apiPort)/v1/health")!)
+    }
+
+    @objc private func runReplySmoke() {
+        runShell("make reply-smoke")
+    }
+
+    @objc private func restartService() {
+        runShell("make install-service && launchctl kickstart -k gui/$(id -u)/com.hatori")
+    }
+
+    @objc private func stopService() {
+        runShell("make stop")
+    }
+
+    @objc private func installService() {
+        runShell("make install-service")
+    }
+
+    @objc private func openLogs() {
+        runShell("make service-logs")
+        let logPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/Hatori/hatori.log").path
+        NSWorkspace.shared.open(URL(fileURLWithPath: logPath))
+    }
+
+    @objc private func quitApp() {
+        NSApplication.shared.terminate(nil)
+    }
+}
+
+let app = NSApplication.shared
+let delegate = MenuApp()
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()
