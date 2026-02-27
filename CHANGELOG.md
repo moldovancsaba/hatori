@@ -2,6 +2,20 @@
 
 All notable changes to this project are tracked here.
 
+## [0.6.0] - 2026-02-27
+
+### Added
+- Dedicated delivery outcome migration `pks/migrations/0002_delivery_events.sql` with auditable `delivery_events` storage and idempotency via unique `external_outcome_id`.
+- Sent Outcome Feedback B-mode support on `POST /v1/agent/outcome`:
+  - `original_text` and `final_sent_text` required for `edited_then_sent`
+  - optional unified `diff` payload persisted as opaque text
+  - linked `learning_events` plus `delivery_events` write per accepted outcome.
+
+### Changed
+- `/v1/agent/respond` response now includes `message_id` for round-trip correlation in `{reply}` outcome reporting.
+- `tools/scripts/db_reset.sh` now applies all SQL migrations in order (`pks/migrations/*.sql`) to keep schema evolution deterministic.
+- Local docs updated for `{reply}` outcome loop usage and unified diff examples in runbook.
+
 ## [0.5.0] - 2026-02-26
 
 ### Added
