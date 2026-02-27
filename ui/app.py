@@ -566,6 +566,11 @@ def _normalize_plan_struct(language_code: str, parsed: dict | None) -> tuple[str
     answer = ((parsed or {}).get("answer_body") or "").strip()
     assumptions = [str(x).strip() for x in ((parsed or {}).get("assumptions") or []) if str(x).strip()]
     actions = [str(x).strip() for x in ((parsed or {}).get("next_actions") or []) if str(x).strip()]
+    answer_has_bad_chars = any(ch in answer for ch in ["�", "±", "\x00"])
+    if answer_has_bad_chars or len(answer) < 20:
+        answer = ""
+    assumptions = [x for x in assumptions if len(x) >= 12 and not any(ch in x for ch in ["�", "±", "\x00"])]
+    actions = [x for x in actions if len(x.strip()) >= 12 and not any(ch in x for ch in ["�", "±", "\x00"])]
 
     if not answer:
         if language_code == "hu":
@@ -606,15 +611,49 @@ def _normalize_plan_struct(language_code: str, parsed: dict | None) -> tuple[str
             ]
 
     normalized: list[str] = []
+    seen_signatures: set[str] = set()
     for idx, action in enumerate(actions, start=1):
-        line = action
+        line = action.strip()
+        line = re.sub(r"^\-\s*", "", line)
+        line = re.sub(r"\s+", " ", line).strip()
+        if not line:
+            continue
         if "p0" not in line.lower() and "p1" not in line.lower() and "p2" not in line.lower():
             prefix = "P0" if idx <= 2 else ("P1" if idx <= 5 else "P2")
-            line = f"{prefix} [ ] {line.lstrip('- ').strip()}"
+            line = f"{prefix} [ ] {line}"
+        elif "[ ]" not in line:
+            line = re.sub(r"^(P[0-2])\s*", r"\1 [ ] ", line, flags=re.IGNORECASE)
+        if not re.match(r"^P[0-2]\s+\[\s\]\s+", line, flags=re.IGNORECASE):
+            prefix = "P0" if idx <= 2 else ("P1" if idx <= 5 else "P2")
+            line = f"{prefix} [ ] {line}"
+        line = re.sub(r"^(P[0-2])\s+\[\s\]\s+", lambda m: f"{m.group(1).upper()} [ ] ", line)
+        signature = re.sub(r"^P[0-2]\s+\[\s\]\s+", "", line, flags=re.IGNORECASE).lower()
+        signature = re.sub(r"[^\wáéíóöőúüű]+", "", signature)
+        if signature and signature in seen_signatures:
+            continue
+        if signature:
+            seen_signatures.add(signature)
         normalized.append(line)
 
     if len(normalized) < 5:
-        normalized.extend((normalized[-1:] or ["P2 [ ] Zárd le a napot rövid összegzéssel."]) * (5 - len(normalized)))
+        fallback_hu = [
+            "P1 [ ] Blokkold ki az első 45 perces fókuszidőt még most.",
+            "P1 [ ] Egyeztess egy rövid státuszfrissítést az érintettekkel.",
+            "P2 [ ] Zárd a napot rövid összegzéssel és holnapi első lépéssel.",
+        ]
+        fallback_en = [
+            "P1 [ ] Block the first 45-minute focus slot now.",
+            "P1 [ ] Send a short status update to stakeholders.",
+            "P2 [ ] Close the day with a short recap and tomorrow first step.",
+        ]
+        pool = fallback_hu if language_code == "hu" else fallback_en
+        for item in pool:
+            if len(normalized) >= 5:
+                break
+            if item not in normalized:
+                normalized.append(item)
+        while len(normalized) < 5:
+            normalized.append(pool[-1])
     normalized = normalized[:8]
     return answer, assumptions[:6], normalized
 

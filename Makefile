@@ -26,7 +26,14 @@ run-ui-hatori:
 
 .PHONY: run-api
 run-api:
-	. .venv/bin/activate && HATORI_API_TOKEN=$${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host 127.0.0.1 --port $${API_PORT:-8094}
+	. .venv/bin/activate && \
+	HATORI_API_TOKEN=$${HATORI_API_TOKEN:?set HATORI_API_TOKEN} && \
+	HOST=$${HATORI_API_BIND:-127.0.0.1} && \
+	if [ "$$HOST" != "127.0.0.1" ] && [ "$$HOST" != "localhost" ] && [ "$$HOST" != "::1" ] && [ -z "$${HATORI_API_ALLOW_CIDRS:-}" ]; then \
+	  echo "Refusing non-loopback bind without HATORI_API_ALLOW_CIDRS"; \
+	  exit 1; \
+	fi && \
+	python -m uvicorn api.app:app --host "$$HOST" --port $${API_PORT:-8094}
 
 .PHONY: up
 up:

@@ -1,12 +1,19 @@
 import json
 import os
+import ipaddress
 import uuid
+import mimetypes
+import hashlib
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi import File
+from fastapi import Form
 from fastapi import Header
 from fastapi import HTTPException
+from fastapi import UploadFile
 from pydantic import BaseModel
 from pydantic import Field
 
@@ -15,7 +22,27 @@ import ui.app as ui
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 VERSION_FILE = ROOT_DIR / "VERSION"
+INGEST_API_DIR = ROOT_DIR / "artefacts" / "ingest_api"
+UPLOADS_API_DIR = ROOT_DIR / "artefacts" / "uploads_api"
 app = FastAPI(title="Hatori API", version=VERSION_FILE.read_text(encoding="utf-8").strip())
+
+
+def _validate_bind_policy() -> None:
+    bind = (os.environ.get("HATORI_API_BIND") or "127.0.0.1").strip()
+    if not bind:
+        bind = "127.0.0.1"
+    if bind in {"localhost", "::1"}:
+        return
+    try:
+        ip = ipaddress.ip_address(bind)
+        is_loopback = ip.is_loopback
+    except ValueError:
+        is_loopback = False
+    if not is_loopback and not (os.environ.get("HATORI_API_ALLOW_CIDRS") or "").strip():
+        raise RuntimeError("Refusing non-loopback HATORI_API_BIND without HATORI_API_ALLOW_CIDRS")
+
+
+_validate_bind_policy()
 
 
 def require_token(x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token")) -> None:
@@ -47,6 +74,7 @@ class RespondBody(BaseModel):
     message: str
     received_at: str | None = None
     mode: str = "chat"
+    external_request_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -59,12 +87,166 @@ class FeedbackBody(BaseModel):
 
 
 class IngestBody(BaseModel):
-    event_id: str
+    external_event_id: str | None = None
+    event_id: str | None = None
     kind: str
     conversation_id: str | None = None
     sender_id: str | None = None
-    content: str
+    content: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class IngestPathBody(BaseModel):
+    external_event_id: str
+    kind: str
+    path: str
+    sha256: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def _detect_media_type(path: Path) -> str:
+    guessed, _enc = mimetypes.guess_type(path.name)
+    return guessed or "application/octet-stream"
+
+
+def _sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def _is_chunkable_text(path: Path, media_type: str) -> bool:
+    suffix = path.suffix.lower()
+    return suffix in {".txt", ".md"} or media_type.startswith("text/")
+
+
+def _insert_embeddings_from_text(artefact_id: str, text: str, meta_base: dict[str, Any]) -> int:
+    chunks = ui.chunk_text(text)
+    if not chunks:
+        return 0
+    adapter = get_embeddings_adapter()
+    vectors = adapter.embed(chunks)
+    created = 0
+    for idx, chunk in enumerate(chunks):
+        emb_id = str(uuid.uuid4())
+        chunk_id = f"{artefact_id}:{idx}"
+        emb_sql = ui._esc_sql(ui.vector_sql_literal(vectors[idx]))
+        cmeta = {
+            **meta_base,
+            "index": idx,
+            "embedder": adapter.name,
+            "embed_dim": adapter.dimension,
+        }
+        ui.psql(
+            "INSERT INTO embeddings (id, artefact_id, chunk_id, content, embedding, metadata) "
+            f"VALUES ('{emb_id}', '{artefact_id}', '{ui._esc_sql(chunk_id)}', '{ui._esc_sql(chunk)}', "
+            f"'{emb_sql}'::vector, '{ui._esc_sql(json.dumps(cmeta, ensure_ascii=False))}'::jsonb);"
+        )
+        created += 1
+    return created
+
+
+def _parse_metadata_json(raw: str | None) -> dict[str, Any]:
+    txt = (raw or "").strip()
+    if not txt:
+        return {}
+    try:
+        parsed = json.loads(txt)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail=f"invalid metadata JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status_code=400, detail="metadata must be a JSON object")
+    return parsed
+
+
+def _artifact_id_by_external_event_id(external_event_id: str, source: str) -> str:
+    return ui.psql(
+        "SELECT id FROM artefacts "
+        f"WHERE COALESCE(metadata->>'external_event_id','')='{ui._esc_sql(external_event_id)}' "
+        f"AND COALESCE(metadata->>'source','')='{ui._esc_sql(source)}' "
+        "ORDER BY created_at DESC LIMIT 1;"
+    ).strip()
+
+
+def _interaction_id_by_external_event_id(external_event_id: str, source: str) -> str:
+    return ui.psql(
+        "SELECT id FROM interaction_events "
+        f"WHERE COALESCE(metadata->>'external_event_id','')='{ui._esc_sql(external_event_id)}' "
+        f"AND COALESCE(metadata->>'source','')='{ui._esc_sql(source)}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    ).strip()
+
+
+def _ingest_file_to_artefact(
+    *,
+    source: str,
+    external_event_id: str,
+    kind: str,
+    file_path: Path,
+    media_type: str,
+    provided_sha256: str | None,
+    conversation_id: str | None,
+    sender_id: str | None,
+    metadata: dict[str, Any],
+) -> tuple[str, str, int]:
+    sha = _sha256_file(file_path)
+    if provided_sha256 and provided_sha256.strip().lower() != sha:
+        raise HTTPException(status_code=400, detail="sha256 mismatch")
+    artefact_id = str(uuid.uuid4())
+    merged_meta = {
+        "source": source,
+        "external_event_id": external_event_id,
+        "kind": kind,
+        "conversation_id": conversation_id or "",
+        "sender_id": sender_id or "",
+        "byte_size": file_path.stat().st_size,
+        **(metadata or {}),
+    }
+    ui.psql(
+        "INSERT INTO artefacts (id, kind, uri, title, media_type, sha256, metadata) "
+        f"VALUES ('{artefact_id}', 'file', '{ui._esc_sql(str(file_path))}', '{ui._esc_sql(file_path.name)}', "
+        f"'{ui._esc_sql(media_type)}', '{sha}', '{ui._esc_sql(json.dumps(merged_meta, ensure_ascii=False))}'::jsonb);"
+    )
+    chunks_created = 0
+    if _is_chunkable_text(file_path, media_type):
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+        chunks_created = _insert_embeddings_from_text(
+            artefact_id=artefact_id,
+            text=text,
+            meta_base={
+                "source": source,
+                "external_event_id": external_event_id,
+                "kind": kind,
+                "media_type": media_type,
+            },
+        )
+    return artefact_id, sha, chunks_created
+
+
+def _path_allowed(path: Path) -> bool:
+    allow_raw = (os.environ.get("HATORI_PATH_ALLOWLIST") or "").strip()
+    if not allow_raw:
+        return False
+    try:
+        resolved = path.resolve(strict=False)
+    except Exception:
+        return False
+    for item in allow_raw.split(","):
+        base_raw = item.strip()
+        if not base_raw:
+            continue
+        try:
+            base = Path(base_raw).expanduser().resolve(strict=False)
+        except Exception:
+            continue
+        if resolved == base or base in resolved.parents:
+            return True
+    return False
 
 
 def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[str, str, list[str], str]:
@@ -262,6 +444,34 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
     conversation_id = _conversation_id(body.conversation_id)
+    external_request_id = (body.external_request_id or (body.metadata or {}).get("external_request_id") or "").strip()
+    if external_request_id:
+        existing_rows = ui.psql_json(
+            "SELECT id, COALESCE(metadata->>'related_user_interaction_id','') AS related_id, content, "
+            "COALESCE(metadata->>'language','') AS language "
+            "FROM interaction_events "
+            "WHERE role='assistant' "
+            "AND COALESCE(metadata->>'source','')='reply' "
+            f"AND COALESCE(metadata->>'external_request_id','')='{ui._esc_sql(external_request_id)}' "
+            "ORDER BY occurred_at DESC LIMIT 1;"
+        )
+        if existing_rows:
+            row = existing_rows[0]
+            language = (row.get("language") or "").strip() or ui.detect_message_language(message)
+            source_lines = ui.build_human_sources_lines(
+                language,
+                ui.load_pks_context(limit=6),
+                ui.load_local_evidence_context(query=message, limit=5),
+            )
+            return {
+                "conversation_id": conversation_id,
+                "user_interaction_id": row.get("related_id", ""),
+                "assistant_interaction_id": row.get("id", ""),
+                "assistant_message": row.get("content", ""),
+                "language": language,
+                "connectivity_state": "OFFLINE",
+                "sources": source_lines,
+            }
 
     meta = {
         "source": "reply",
@@ -273,6 +483,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
         "mode": body.mode or "chat",
         "platform": (body.metadata or {}).get("platform", ""),
         "channel": (body.metadata or {}).get("channel", ""),
+        "external_request_id": external_request_id,
         "extra": (body.metadata or {}).get("extra", {}),
     }
     user_id = ui.insert_interaction("user", message, meta)
@@ -290,6 +501,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
             "model_adapter": model_adapter.name if model_adapter is not None else "unavailable",
             "generation_path": gen_path,
             "language": language_code,
+            "external_request_id": external_request_id,
             "related_user_interaction_id": user_id,
         },
     )
@@ -319,6 +531,16 @@ def agent_feedback(body: FeedbackBody, x_hatori_token: str | None = Header(defau
     vote = body.vote.strip().lower()
     if vote not in {"up", "down"}:
         raise HTTPException(status_code=400, detail="vote must be up or down")
+    external_request_id = (body.external_request_id or "").strip()
+    if external_request_id:
+        existing = ui.psql(
+            "SELECT id FROM learning_events "
+            f"WHERE related_interaction_id='{ui._esc_sql(body.assistant_interaction_id)}' "
+            f"AND COALESCE(details->>'external_request_id','')='{ui._esc_sql(external_request_id)}' "
+            "ORDER BY occurred_at DESC LIMIT 1;"
+        ).strip()
+        if existing:
+            return {"learning_event_id": existing}
     kind = "PositiveFeedback" if vote == "up" else "NegativeFeedback"
     confidence = "High" if vote == "up" else "Medium"
     lid = ui.insert_learning(
@@ -328,7 +550,7 @@ def agent_feedback(body: FeedbackBody, x_hatori_token: str | None = Header(defau
             "vote": vote,
             "category": body.category.strip() or "Other",
             "comment": body.comment.strip(),
-            "external_request_id": body.external_request_id or "",
+            "external_request_id": external_request_id,
             "ui_context": {"route": "/v1/agent/feedback", "source": "reply"},
         },
         related_interaction_id=body.assistant_interaction_id,
@@ -339,74 +561,152 @@ def agent_feedback(body: FeedbackBody, x_hatori_token: str | None = Header(defau
 @app.post("/v1/ingest/event")
 def ingest_event(body: IngestBody, x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token")) -> dict[str, Any]:
     require_token(x_hatori_token)
-    event_id = body.event_id.strip()
+    event_id = (body.external_event_id or body.event_id or "").strip()
     if not event_id:
-        raise HTTPException(status_code=400, detail="event_id is required")
+        raise HTTPException(status_code=400, detail="external_event_id is required")
+    content = (body.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required for /v1/ingest/event")
 
-    existing = ui.psql(
-        "SELECT id FROM interaction_events "
-        f"WHERE COALESCE(metadata->>'event_id','')='{ui._esc_sql(event_id)}' "
-        "AND COALESCE(metadata->>'source','')='reply' "
-        "ORDER BY occurred_at DESC LIMIT 1;"
-    ).strip()
+    existing = _interaction_id_by_external_event_id(event_id, "reply.ingest_event")
     if existing:
-        return {"stored": True, "interaction_id": existing, "artefact_id": None}
+        existing_artefact = _artifact_id_by_external_event_id(event_id, "reply.ingest_event")
+        return {"stored": True, "interaction_id": existing, "artefact_id": existing_artefact or None}
 
     conversation_id = _conversation_id(body.conversation_id)
     role = "user" if body.kind in {"email", "imessage"} else "system"
+    if len(content.encode("utf-8")) <= 200 * 1024:
+        interaction_id = ui.insert_interaction(
+            role,
+            content,
+            {
+                "source": "reply.ingest_event",
+                "external_event_id": event_id,
+                "kind": body.kind,
+                "chat_id": conversation_id,
+                "conversation_id": conversation_id,
+                "sender_id": body.sender_id or "",
+                "metadata": body.metadata or {},
+            },
+        )
+        return {"stored": True, "interaction_id": interaction_id, "artefact_id": None}
+
+    INGEST_API_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    safe_name = f"{ts}__{body.kind}_{event_id}.txt".replace("/", "_")
+    stored_path = INGEST_API_DIR / safe_name
+    stored_path.write_text(content, encoding="utf-8")
+    artefact_id, _sha, _chunks = _ingest_file_to_artefact(
+        source="reply.ingest_event",
+        external_event_id=event_id,
+        kind=body.kind,
+        file_path=stored_path,
+        media_type="text/plain",
+        provided_sha256=None,
+        conversation_id=conversation_id,
+        sender_id=body.sender_id,
+        metadata=body.metadata or {},
+    )
     interaction_id = ui.insert_interaction(
         role,
-        body.content,
+        "Nagy tartalom beérkezett; artefactként eltárolva és feldolgozva.",
         {
-            "source": "reply",
-            "event_id": event_id,
+            "source": "reply.ingest_event",
+            "external_event_id": event_id,
             "kind": body.kind,
             "chat_id": conversation_id,
             "conversation_id": conversation_id,
             "sender_id": body.sender_id or "",
+            "artefact_id": artefact_id,
             "metadata": body.metadata or {},
         },
     )
-
-    artefact_id = None
-    if len(body.content) >= 1200:
-        artefact_id = str(uuid.uuid4())
-        title = f"{body.kind}-{event_id}"
-        meta = {
-            "source": "reply.ingest",
-            "event_id": event_id,
-            "kind": body.kind,
-            "sensitivity": "Private",
-            "provenance": "LocalDoc",
-        }
-        uri = f"reply://{event_id}"
-        sha = ui.hashlib.sha256(body.content.encode("utf-8")).hexdigest()
-        ui.psql(
-            "INSERT INTO artefacts (id, kind, uri, title, media_type, sha256, metadata) "
-            f"VALUES ('{artefact_id}', 'note', '{ui._esc_sql(uri)}', '{ui._esc_sql(title)}', "
-            f"'text/plain', '{sha}', '{ui._esc_sql(json.dumps(meta, ensure_ascii=False))}'::jsonb);"
-        )
-        chunks = ui.chunk_text(body.content)
-        adapter = get_embeddings_adapter()
-        vectors = adapter.embed(chunks) if chunks else []
-        for idx, chunk in enumerate(chunks):
-            emb_id = str(uuid.uuid4())
-            chunk_id = f"{artefact_id}:{idx}"
-            emb_sql = ui._esc_sql(ui.vector_sql_literal(vectors[idx]))
-            cmeta = {
-                "source": "reply.ingest",
-                "event_id": event_id,
-                "index": idx,
-                "embedder": adapter.name,
-                "embed_dim": adapter.dimension,
-            }
-            ui.psql(
-                "INSERT INTO embeddings (id, artefact_id, chunk_id, content, embedding, metadata) "
-                f"VALUES ('{emb_id}', '{artefact_id}', '{ui._esc_sql(chunk_id)}', '{ui._esc_sql(chunk)}', "
-                f"'{emb_sql}'::vector, '{ui._esc_sql(json.dumps(cmeta, ensure_ascii=False))}'::jsonb);"
-            )
-
     return {"stored": True, "interaction_id": interaction_id, "artefact_id": artefact_id}
+
+
+@app.post("/v1/artefacts/upload")
+async def artefacts_upload(
+    external_event_id: str = Form(...),
+    kind: str = Form(...),
+    file: UploadFile = File(...),
+    conversation_id: str = Form(default=""),
+    sender_id: str = Form(default=""),
+    metadata: str = Form(default=""),
+    x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token"),
+) -> dict[str, Any]:
+    require_token(x_hatori_token)
+    event_id = external_event_id.strip()
+    if not event_id:
+        raise HTTPException(status_code=400, detail="external_event_id is required")
+    existing = _artifact_id_by_external_event_id(event_id, "reply.upload")
+    if existing:
+        chunks_created = int(
+            ui.psql(f"SELECT count(*) FROM embeddings WHERE artefact_id='{ui._esc_sql(existing)}';").strip() or "0"
+        )
+        sha = ui.psql(f"SELECT COALESCE(sha256,'') FROM artefacts WHERE id='{ui._esc_sql(existing)}' LIMIT 1;").strip()
+        return {"artefact_id": existing, "sha256": sha, "chunks_created": chunks_created}
+
+    meta_obj = _parse_metadata_json(metadata)
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="file must not be empty")
+    UPLOADS_API_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+    safe_name = Path(file.filename or "upload.bin").name
+    dest = UPLOADS_API_DIR / f"{ts}__{safe_name}"
+    dest.write_bytes(raw_bytes)
+    media_type = (file.content_type or "").strip() or _detect_media_type(dest)
+    artefact_id, sha, chunks_created = _ingest_file_to_artefact(
+        source="reply.upload",
+        external_event_id=event_id,
+        kind=kind.strip() or "other",
+        file_path=dest,
+        media_type=media_type,
+        provided_sha256=None,
+        conversation_id=(conversation_id or "").strip() or None,
+        sender_id=(sender_id or "").strip() or None,
+        metadata=meta_obj,
+    )
+    return {"artefact_id": artefact_id, "sha256": sha, "chunks_created": chunks_created}
+
+
+@app.post("/v1/artefacts/ingest_path")
+def artefacts_ingest_path(
+    body: IngestPathBody,
+    x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token"),
+) -> dict[str, Any]:
+    require_token(x_hatori_token)
+    if (os.environ.get("HATORI_ALLOW_PATH_INGEST") or "0").strip() != "1":
+        raise HTTPException(status_code=403, detail="path ingest disabled")
+    event_id = body.external_event_id.strip()
+    if not event_id:
+        raise HTTPException(status_code=400, detail="external_event_id is required")
+    existing = _artifact_id_by_external_event_id(event_id, "reply.path")
+    if existing:
+        chunks_created = int(
+            ui.psql(f"SELECT count(*) FROM embeddings WHERE artefact_id='{ui._esc_sql(existing)}';").strip() or "0"
+        )
+        sha = ui.psql(f"SELECT COALESCE(sha256,'') FROM artefacts WHERE id='{ui._esc_sql(existing)}' LIMIT 1;").strip()
+        return {"artefact_id": existing, "sha256": sha, "chunks_created": chunks_created}
+
+    path = Path(body.path).expanduser()
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=400, detail="path does not exist or is not a file")
+    if not _path_allowed(path):
+        raise HTTPException(status_code=403, detail="path is outside allowlist")
+    media_type = _detect_media_type(path)
+    artefact_id, sha, chunks_created = _ingest_file_to_artefact(
+        source="reply.path",
+        external_event_id=event_id,
+        kind=body.kind.strip() or "other",
+        file_path=path,
+        media_type=media_type,
+        provided_sha256=body.sha256,
+        conversation_id=(body.metadata or {}).get("conversation_id"),
+        sender_id=(body.metadata or {}).get("sender_id"),
+        metadata=body.metadata or {},
+    )
+    return {"artefact_id": artefact_id, "sha256": sha, "chunks_created": chunks_created}
 
 
 @app.get("/v1/search")
