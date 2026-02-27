@@ -22,18 +22,30 @@ run-ui:
 
 .PHONY: run-ui-hatori
 run-ui-hatori:
-	. .venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $${PORT:-8093}
+	@PORT_VAL=$${PORT:-8093}; \
+	./tools/scripts/ensure_port.sh "$$PORT_VAL" ui ". .venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $$PORT_VAL"
 
 .PHONY: run-api
 run-api:
-	. .venv/bin/activate && \
-	HATORI_API_TOKEN=$${HATORI_API_TOKEN:?set HATORI_API_TOKEN} && \
-	HOST=$${HATORI_API_BIND:-127.0.0.1} && \
+	@API_PORT_VAL=$${API_PORT:-8094}; \
+	HOST=$${HATORI_API_BIND:-127.0.0.1}; \
 	if [ "$$HOST" != "127.0.0.1" ] && [ "$$HOST" != "localhost" ] && [ "$$HOST" != "::1" ] && [ -z "$${HATORI_API_ALLOW_CIDRS:-}" ]; then \
 	  echo "Refusing non-loopback bind without HATORI_API_ALLOW_CIDRS"; \
 	  exit 1; \
-	fi && \
-	python -m uvicorn api.app:app --host "$$HOST" --port $${API_PORT:-8094}
+	fi; \
+	./tools/scripts/ensure_port.sh "$$API_PORT_VAL" api ". .venv/bin/activate && HATORI_API_TOKEN=\$${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host $$HOST --port $$API_PORT_VAL"
+
+.PHONY: stop-ui
+stop-ui:
+	./tools/scripts/stop_hatori.sh ui
+
+.PHONY: stop-api
+stop-api:
+	./tools/scripts/stop_hatori.sh api
+
+.PHONY: stop
+stop:
+	./tools/scripts/stop_hatori.sh all
 
 .PHONY: model-health
 model-health:
