@@ -506,8 +506,8 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "version": VERSION_FILE.read_text(encoding="utf-8").strip(),
-        "ui_port": 8093,
-        "api_port": 8094,
+        "ui_port": int((os.environ.get("UI_PORT") or "23571").strip()),
+        "api_port": int((os.environ.get("API_PORT") or "23572").strip()),
         "db": db,
         "model": model,
         "model_name": model_name,

@@ -1102,7 +1102,7 @@ def test_92_api_health_works() -> None:
     out = resp.json()
     assert_true(out.get("status") == "ok", "health status must be ok")
     assert_true("version" in out and "db" in out and "api_port" in out, "health payload missing required fields")
-    assert_true(out.get("api_port") == 8094 and out.get("ui_port") == 8093, "health ports should be fixed values")
+    assert_true(out.get("api_port") == int((os.environ.get("API_PORT") or "23572")) and out.get("ui_port") == int((os.environ.get("UI_PORT") or "23571")), "health ports should match configured defaults")
 
 
 def test_93_api_respond_requires_token_401() -> None:

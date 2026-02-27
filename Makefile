@@ -22,7 +22,7 @@ run-ui:
 
 .PHONY: run-ui-hatori
 run-ui-hatori:
-	@PORT_VAL=$${UI_PORT:-$${PORT:-8093}}; \
+	@PORT_VAL=$${UI_PORT:-$${PORT:-23571}}; \
 	ORDER=$${HATORI_GENERATOR_ORDER:-mlx,ollama}; \
 	NEED_OLLAMA=0; \
 	if printf '%s' "$$ORDER" | tr '[:upper:]' '[:lower:]' | grep -q 'ollama'; then NEED_OLLAMA=1; fi; \

@@ -10,7 +10,7 @@ fi
 
 # shellcheck disable=SC1090
 source "$ENV_FILE"
-BASE_URL="${HATORI_BASE_URL:-http://127.0.0.1:${API_PORT:-8094}}"
+BASE_URL="${HATORI_BASE_URL:-http://127.0.0.1:${API_PORT:-23572}}"
 TOKEN="${HATORI_API_TOKEN:-}"
 if [ -z "$TOKEN" ]; then
   echo "HATORI_API_TOKEN missing in $ENV_FILE"

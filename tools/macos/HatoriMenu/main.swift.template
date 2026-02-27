@@ -10,8 +10,8 @@ final class MenuApp: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private let repoRoot = "__REPO_ROOT__"
     private var iconFont: NSFont?
-    private var uiPort = "8093"
-    private var apiPort = "8094"
+    private var uiPort = "23571"
+    private var apiPort = "23572"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         loadPortsFromEnv()
@@ -24,7 +24,11 @@ final class MenuApp: NSObject, NSApplicationDelegate {
         menu.addItem(detailItem)
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(item("Open UI", #selector(openUI)))
+        menu.addItem(item("Open UI /chat", #selector(openUI)))
+        menu.addItem(item("Open UI /upload", #selector(openUIUpload)))
+        menu.addItem(item("Open UI /search", #selector(openUISearch)))
+        menu.addItem(item("Open UI /interactions", #selector(openUIInteractions)))
+        menu.addItem(item("Open UI /learning", #selector(openUILearning)))
         menu.addItem(item("Open API Health", #selector(openAPIHealth)))
         menu.addItem(item("Reply Smoke", #selector(runReplySmoke)))
         menu.addItem(NSMenuItem.separator())
@@ -151,6 +155,22 @@ final class MenuApp: NSObject, NSApplicationDelegate {
 
     @objc private func openUI() {
         NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(uiPort)/chat")!)
+    }
+
+    @objc private func openUIUpload() {
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(uiPort)/upload")!)
+    }
+
+    @objc private func openUISearch() {
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(uiPort)/search")!)
+    }
+
+    @objc private func openUIInteractions() {
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(uiPort)/interactions")!)
+    }
+
+    @objc private func openUILearning() {
+        NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(uiPort)/learning")!)
     }
 
     @objc private func openAPIHealth() {

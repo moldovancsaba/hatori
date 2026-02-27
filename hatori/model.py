@@ -451,6 +451,8 @@ def get_task_model_adapter(task: str) -> tuple[ModelAdapter | None, str | None, 
             health = adapter.healthcheck()
             if not health.get("ok"):
                 raise RuntimeError(str(health.get("error") or f"{backend} healthcheck failed"))
+            if adapter.name == "ollama" and health.get("model_available") is False:
+                raise RuntimeError(f"ollama model not available: {getattr(adapter, 'model', '')}")
             return adapter, None, {
                 "task": task,
                 "backend_used": adapter.name,
