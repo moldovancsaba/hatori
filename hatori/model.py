@@ -43,7 +43,7 @@ class NullAdapter:
             return (
                 "Offline determinisztikus valasz (NullAdapter). "
                 f"Keresi ujjlenyomat: {digest}. "
-                "Javaslat: dolgozz 5 pontos napi ellenorzo listaval, es igazitsd a valos kapacitasodhoz."
+                "Ma pragmatikus feladat lista javasolt; kritikus feltetelezeseket jelolok, majd kovetkezo lepesek checklistat adok."
             )
         if lang == "ro":
             return (

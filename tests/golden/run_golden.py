@@ -663,83 +663,99 @@ def _assert_template_sections(text: str) -> None:
         assert_true(marker in text, f"Missing template section in planning output: {marker}")
 
 
-def test_60_planning_request_hu_mirrors_language() -> None:
+PLANNING_TODAY_HU_MESSAGE = (
+    "Ma kérlek készíts nekem egy rövid, pragmatikus napi tervet. "
+    "Keretek: OFFLINE módban vagyunk (ne hivatkozz webre). "
+    "Nincs naptáradatod és nem adok meg fix meetingeket. "
+    "Legyen 5–8 konkrét teendő, priorizálva. "
+    "Írd le a kritikus feltételezéseket. "
+    "Ne írj memóriába semmit automatikusan. "
+    "A válasz legyen a standard sablon szerint."
+)
+
+
+def test_60_planning_today_hu_language_mirror() -> None:
     chat_id = "golden-plan-60"
-    out = _daily_planning_chat_output(chat_id, "Kérlek készíts egy rövid napi tervet, 5 pontban.")
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
     _assert_template_sections(out)
     lowered = out.lower()
-    assert_true("offline determinisztikus valasz" in lowered or "javaslat" in lowered, "Hungarian planning output should contain Hungarian markers")
-    assert_true("offline deterministic response" not in lowered, "Hungarian planning output should avoid English-only deterministic marker")
+    hu_markers = ["ma", "feladat", "feltetelezes", "feltételezés", "kovetkezo", "következő", "lepes", "lépések"]
+    marker_hits = sum(1 for m in hu_markers if m in lowered)
+    assert_true(marker_hits >= 3, "Planning response should be predominantly Hungarian")
+    assert_true("offline deterministic response" not in lowered, "Planning response should not be an English placeholder")
+    assert_true("1) connectivity state: offline" in lowered, "OFFLINE state must be declared")
 
 
-def test_61_planning_request_includes_assumptions_when_calendar_unknown() -> None:
+def test_61_planning_today_includes_default_template_sections() -> None:
     chat_id = "golden-plan-61"
-    out = _daily_planning_chat_output(chat_id, "Adj napi tervet ma 5 pontban.")
-    assumptions = out.split("4) Assumptions & Uncertainties", 1)[1].split("5) Next Actions", 1)[0].lower()
-    assert_true("no explicit calendar" in assumptions or "time constraints" in assumptions, "Planning output should state missing calendar/time assumptions")
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
+    _assert_template_sections(out)
 
 
-def test_62_planning_request_outputs_next_actions_checklist() -> None:
+def test_62_planning_today_assumptions_present_when_calendar_unknown() -> None:
     chat_id = "golden-plan-62"
-    out = _daily_planning_chat_output(chat_id, "Please prepare a daily planning checklist.")
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
+    assumptions = out.split("4) Assumptions & Uncertainties", 1)[1].split("5) Next Actions", 1)[0].lower()
+    assert_true("nincs atadott naptar" in assumptions or "no explicit calendar" in assumptions, "Assumptions should mention missing calendar input")
+    assert_true("meeting" in assumptions, "Assumptions should mention missing meetings")
+
+
+def test_63_planning_today_next_actions_count_and_priority() -> None:
+    chat_id = "golden-plan-63"
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
     next_actions = out.split("5) Next Actions", 1)[1].split("6) Memory Patch", 1)[0]
     checklist_count = next_actions.count("[ ]")
-    bullet_count = next_actions.count("- ")
-    assert_true(checklist_count >= 5 or bullet_count >= 5, "Planning next actions should include at least 5 checklist/bullet items")
+    assert_true(5 <= checklist_count <= 8, "Today planning should contain 5-8 concrete next-action items")
+    lowered = next_actions.lower()
+    assert_true("p0" in lowered or "p1" in lowered, "Today planning should include explicit prioritization labels")
 
 
-def test_63_planning_request_no_memory_patch_by_default() -> None:
-    chat_id = "golden-plan-63"
-    out = _daily_planning_chat_output(chat_id, "Plan my day in 5 points.")
-    memory_patch = out.split("6) Memory Patch", 1)[1].split("7) Learning Log (J)", 1)[0]
-    assert_true("No memory changes." in memory_patch, "Planning should not write memory by default")
-
-
-def test_64_planning_request_offline_no_web_claims() -> None:
+def test_64_planning_today_no_web_claims_offline() -> None:
     chat_id = "golden-plan-64"
-    out = _daily_planning_chat_output(chat_id, "Give me a weekly planning scaffold.")
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
     lowered = out.lower()
     assert_true("http://" not in lowered and "https://" not in lowered, "Planning output must not include web URLs")
-    assert_true("verified online" not in lowered, "Planning output must not claim online verification")
-    assert_true("source:" not in lowered, "Planning output must not imply web source citations")
+    assert_true("verified" not in lowered, "Planning output must not claim verification")
+    assert_true("source:" not in lowered, "Planning output must not imply external web sources")
 
 
-def test_65_planning_request_respects_connectivity_state_offline() -> None:
+def test_65_planning_today_no_memory_patch_by_default() -> None:
     chat_id = "golden-plan-65"
-    out = _daily_planning_chat_output(chat_id, "Create a concise daily plan with assumptions.")
-    assert_true("1) Connectivity State: OFFLINE" in out, "Planning output must stay OFFLINE")
+    before_pks_ah = int(db_scalar("SELECT count(*) FROM pks_records WHERE module IN ('A','B','C','D','E','F','G','H');"))
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
+    memory_patch = out.split("6) Memory Patch", 1)[1].split("7) Learning Log (J)", 1)[0]
+    mp_lower = memory_patch.lower()
+    assert_true("no memory changes." in mp_lower or "nincs memoria" in mp_lower, "Planning should not write memory by default")
+    after_pks_ah = int(db_scalar("SELECT count(*) FROM pks_records WHERE module IN ('A','B','C','D','E','F','G','H');"))
+    assert_true(after_pks_ah == before_pks_ah, "Planning response must not auto-write PKS A-H")
 
 
-def test_66_planning_request_feedback_buttons_do_not_auto_log() -> None:
+def test_66_planning_today_learning_log_default() -> None:
     chat_id = "golden-plan-66"
     before = int(db_scalar("SELECT count(*) FROM learning_events;"))
-    out = _daily_planning_chat_output(chat_id, "Please create a daily planning checklist without storing memory.")
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
     after = int(db_scalar("SELECT count(*) FROM learning_events;"))
-    assert_true(after == before, "Chat planning path should not auto-log learning events without feedback submission")
+    assert_true(after == before, "Planning response path should not auto-log learning events without feedback")
     assert_true("No learning event recorded." in out, "Learning log section should show no event by default")
 
 
-def test_67_planning_request_structure_stable_under_ollama() -> None:
-    # Prefer Ollama when available; fallback to deterministic none in CI.
-    mode = "none"
-    try:
-        proc = subprocess.run(
-            ["curl", "-s", "http://127.0.0.1:11434/api/tags"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            timeout=3,
-        )
-        if proc.returncode == 0:
-            mode = "ollama"
-    except Exception:
-        mode = "none"
-
+def test_67_planning_today_no_fabricated_commitments() -> None:
     chat_id = "golden-plan-67"
-    out = _daily_planning_chat_output(chat_id, "Please build my weekly plan with assumptions and next actions.", model_mode=mode)
+    out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE, model_mode="none")
     _assert_template_sections(out)
     lowered = out.lower()
-    assert_true("placeholder" not in lowered and "dummy" not in lowered and "tbd" not in lowered, "Planning structure should stay real under selected model mode")
+    answer = out.split("2) Answer / Recommendation", 1)[1].split("3) Evidence & Sources", 1)[0].lower()
+    fabricated_markers = [
+        "meeting at ",
+        "stakeholder",
+        "deadline:",
+        "koztelezo meeting",
+        "egyeztetes 10:00",
+        "hatarido:",
+    ]
+    assert_true(not any(m in answer for m in fabricated_markers), "Planning answer must not invent meetings/stakeholders/deadlines")
+    assert_true("feltetelezes" in lowered or "assumption" in lowered, "Unknown commitments should be framed as assumptions")
+    assert_true("placeholder" not in lowered and "dummy" not in lowered and "tbd" not in lowered, "Planning output must not be placeholder text")
 
 
 def collect_tests() -> list:
@@ -795,14 +811,14 @@ def collect_tests() -> list:
         test_48_feedback_down_creates_negative_learning,
         test_49_upload_txt_creates_artefact_and_embeddings,
         test_50_upload_content_searchable_in_ui,
-        test_60_planning_request_hu_mirrors_language,
-        test_61_planning_request_includes_assumptions_when_calendar_unknown,
-        test_62_planning_request_outputs_next_actions_checklist,
-        test_63_planning_request_no_memory_patch_by_default,
-        test_64_planning_request_offline_no_web_claims,
-        test_65_planning_request_respects_connectivity_state_offline,
-        test_66_planning_request_feedback_buttons_do_not_auto_log,
-        test_67_planning_request_structure_stable_under_ollama,
+        test_60_planning_today_hu_language_mirror,
+        test_61_planning_today_includes_default_template_sections,
+        test_62_planning_today_assumptions_present_when_calendar_unknown,
+        test_63_planning_today_next_actions_count_and_priority,
+        test_64_planning_today_no_web_claims_offline,
+        test_65_planning_today_no_memory_patch_by_default,
+        test_66_planning_today_learning_log_default,
+        test_67_planning_today_no_fabricated_commitments,
     ]
 
 

@@ -181,30 +181,39 @@ def is_daily_planning_request(text: str) -> bool:
 
 def render_chat_default_output(answer: str, language_code: str, user_text: str) -> str:
     planning = is_daily_planning_request(user_text)
-    assumptions = [
-        f"Language mode selected from current user message: {language_name(language_code)}.",
-        "Offline local runtime only; no web retrieval used.",
-    ]
-    if planning:
-        assumptions.append("No explicit calendar, dates, or time constraints were provided by the user.")
-
     if planning and language_code == "hu":
+        assumptions = [
+            "Feltetelezes: a felhasznalo aktualis nyelve magyar.",
+            "Feltetelezes: OFFLINE modban dolgozunk, webes forras nelkul.",
+            "Feltetelezes: nincs atadott naptar, fix meeting, stakeholder-lista vagy deadline.",
+        ]
         next_actions = [
-            "[ ] Azonositsd a mai 3 legfontosabb kimenetet.",
-            "[ ] Foglalj 2 db 60 perces fokusz blokkot mely munkara.",
-            "[ ] Utemezz 1 admin blokkot valaszokra es szervezesre.",
-            "[ ] Adj 1 puffer blokkot varatlan feladatokra.",
-            "[ ] Zaras elott ellenorizd mi kesz, mi csuszik, mi a holnapi elso lepes.",
+            "- P0 [ ] Ma 1 legfontosabb kimenetet nevezz meg, ami merhetoen lezarhato.",
+            "- P0 [ ] Becsuld meg a realis kapacitast, majd valassz osszesen legfeljebb 3 fokuszfeladatot.",
+            "- P1 [ ] Keszits rovid vegrehajtasi sorrendet a 3 feladathoz (elso lepes + kesz definicio).",
+            "- P1 [ ] Adj hozza 1 admin/kommunikacios tetelt, ami csokkenti a torlodast.",
+            "- P1 [ ] Tervezz 1 puffer tetelt varatlan megszakitasokra.",
+            "- P2 [ ] Nap vegen tarts 10 perces visszatekintest: mi keszult el, mi csuszik, mi a kovetkezo lepes.",
         ]
     elif planning:
+        assumptions = [
+            f"Language mode selected from current user message: {language_name(language_code)}.",
+            "Offline local runtime only; no web retrieval used.",
+            "No explicit calendar, meetings, stakeholders, or deadlines were provided by the user.",
+        ]
         next_actions = [
-            "[ ] Identify the top 3 outcomes for today.",
-            "[ ] Reserve two 60-minute focus blocks for deep work.",
-            "[ ] Schedule one admin block for replies and coordination.",
-            "[ ] Add one buffer block for unexpected tasks.",
-            "[ ] End the day with a quick review and first step for tomorrow.",
+            "- P0 [ ] Define one measurable top outcome for today.",
+            "- P0 [ ] Pick up to three focus tasks aligned with realistic capacity.",
+            "- P1 [ ] Sequence the three tasks with a first concrete step each.",
+            "- P1 [ ] Add one admin/coordination task to reduce task friction.",
+            "- P1 [ ] Add one explicit buffer item for interruptions.",
+            "- P2 [ ] End with a short review and tomorrow-first-step note.",
         ]
     else:
+        assumptions = [
+            f"Language mode selected from current user message: {language_name(language_code)}.",
+            "Offline local runtime only; no web retrieval used.",
+        ]
         next_actions = ["Continue the chat with a follow-up if you want refinement."]
     payload = {
         "connectivity_state": "OFFLINE",
