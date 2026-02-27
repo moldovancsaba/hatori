@@ -44,6 +44,14 @@ CSS = (
     " pre{white-space:pre-wrap;background:#f8fafc;border:1px solid #e5e7eb;border-radius:10px;padding:12px}"
     " .msg-user{background:#eef6ff;border:1px solid #b6d4ff;padding:10px;border-radius:8px;margin:8px 0}"
     " .msg-assistant{background:#f8fafc;border:1px solid #dfe4ea;padding:10px;border-radius:8px;margin:8px 0}"
+    " .msg-body{white-space:pre-wrap}"
+    " .chat-wrap{display:flex;gap:16px;align-items:flex-start}"
+    " .chat-side{width:280px;position:sticky;top:12px}"
+    " .chat-main{flex:1;min-width:0}"
+    " .chat-item{padding:8px;border:1px solid #e5e7eb;border-radius:8px;margin:8px 0;display:block}"
+    " .chat-item small{color:#6b7280;display:block}"
+    " .chat-actions{display:flex;gap:8px;margin:8px 0}"
+    " .ts{color:#6b7280;font-size:12px}"
     " input[type=text],textarea,select{width:100%;padding:8px;margin:6px 0}"
     " button{padding:6px 10px}"
 )
@@ -121,6 +129,75 @@ def chunk_text(text: str, chunk_size: int = 900, overlap: int = 120) -> list[str
             break
         start = max(0, end - overlap)
     return chunks
+
+
+def new_chat_id() -> str:
+    return str(uuid.uuid4())
+
+
+def load_chat_rows(chat_id: str, limit: int = 300) -> list[dict]:
+    return psql_json(
+        "SELECT id, occurred_at, role, content, metadata "
+        "FROM interaction_events "
+        f"WHERE COALESCE(metadata->>'chat_id','')='{_esc_sql(chat_id)}' "
+        "AND role IN ('user','assistant') "
+        "ORDER BY occurred_at ASC "
+        f"LIMIT {int(limit)}"
+    )
+
+
+def load_recent_chats(limit: int = 40) -> list[dict]:
+    return psql_json(
+        "SELECT t.chat_id, t.occurred_at AS last_at, t.role AS last_role, t.content AS last_content "
+        "FROM ("
+        "  SELECT DISTINCT ON (COALESCE(metadata->>'chat_id','')) "
+        "    COALESCE(metadata->>'chat_id','') AS chat_id, occurred_at, role, content, metadata "
+        "  FROM interaction_events "
+        "  WHERE COALESCE(metadata->>'chat_id','') <> '' "
+        "    AND role IN ('user','assistant') "
+        "    AND COALESCE(metadata->>'archived','false') <> 'true' "
+        "  ORDER BY COALESCE(metadata->>'chat_id',''), occurred_at DESC"
+        ") t "
+        "ORDER BY t.occurred_at DESC "
+        f"LIMIT {int(limit)}"
+    )
+
+
+def load_chat_history_for_prompt(chat_id: str, limit: int = 10) -> list[dict]:
+    rows = psql_json(
+        "SELECT role, content, occurred_at "
+        "FROM interaction_events "
+        f"WHERE COALESCE(metadata->>'chat_id','')='{_esc_sql(chat_id)}' "
+        "AND role IN ('user','assistant') "
+        "ORDER BY occurred_at DESC "
+        f"LIMIT {int(limit)}"
+    )
+    rows.reverse()
+    return rows
+
+
+def load_pks_context(limit: int = 8) -> list[dict]:
+    return psql_json(
+        "SELECT id, module, status, title, body "
+        "FROM pks_records "
+        "WHERE status='Approved' "
+        "ORDER BY updated_at DESC "
+        f"LIMIT {int(limit)}"
+    )
+
+
+def load_local_evidence_context(query: str, limit: int = 6) -> list[dict]:
+    payload = search_runtime(query=query, limit=int(limit), allow_pending=False)
+    return payload.get("results", [])[: int(limit)]
+
+
+def summarize_prev_user_turn(history: list[dict]) -> str:
+    for row in reversed(history):
+        if (row.get("role") or "").lower() == "user":
+            txt = (row.get("content") or "").strip()
+            if txt:
+                return txt[:120]
+    return ""
 
 
 def detect_message_language(text: str) -> str:
@@ -366,26 +443,69 @@ def home() -> HTMLResponse:
     return HTMLResponse(layout("Hatori", "<div class='card'><p>Local dashboard.</p></div>"))
 
 
+@app.get("/chat/new")
+def chat_new() -> RedirectResponse:
+    cid = new_chat_id()
+    return RedirectResponse(url=f"/chat?chat_id={cid}", status_code=303)
+
+
+@app.post("/chat/archive")
+def chat_archive(chat_id: str = Form(...)) -> RedirectResponse:
+    if not chat_id.strip():
+        return RedirectResponse(url="/chat?new=1", status_code=303)
+    psql(
+        "UPDATE interaction_events "
+        "SET metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{archived}', 'true'::jsonb, true) "
+        f"WHERE COALESCE(metadata->>'chat_id','')='{_esc_sql(chat_id)}';"
+    )
+    return RedirectResponse(url="/chat?new=1", status_code=303)
+
+
 @app.get("/chat", response_class=HTMLResponse)
-def chat(chat_id: str = "main") -> HTMLResponse:
-    rows = psql_json(
-        "SELECT id, occurred_at, role, content, metadata "
-        "FROM interaction_events "
-        f"WHERE COALESCE(metadata->>'chat_id','main')='{_esc_sql(chat_id)}' "
-        "AND role IN ('user','assistant') "
-        "ORDER BY occurred_at ASC LIMIT 300"
+def chat(chat_id: str | None = None, new: int = 0):
+    if new == 1 or not (chat_id or "").strip():
+        cid = new_chat_id()
+        return RedirectResponse(url=f"/chat?chat_id={cid}", status_code=303)
+
+    chat_id = (chat_id or "").strip()
+    rows = load_chat_rows(chat_id=chat_id, limit=300)
+    recent_chats = load_recent_chats(limit=40)
+
+    body = [f"<div class='chat-wrap'><aside class='chat-side'><div class='card'><h3>Chats</h3>"]
+    body.append("<div class='chat-actions'><a href='/chat?new=1'><button type='button'>New chat</button></a></div>")
+    for c in recent_chats:
+        cid = c.get("chat_id") or ""
+        preview = (c.get("last_content") or "").strip().replace("\n", " ")
+        preview = preview[:60] + ("..." if len(preview) > 60 else "")
+        body.append(
+            f"<a class='chat-item' href='/chat?chat_id={_h(cid)}'>"
+            f"<strong>{_h(cid[:8])}</strong>"
+            f"<small>{_h(str(c.get('last_at') or ''))}</small>"
+            f"<small>{_h(preview)}</small>"
+            "</a>"
+        )
+    body.append("</div></aside><section class='chat-main'><div class='card'>")
+    body.append(f"<h2>Chat ({_h(chat_id)})</h2>")
+    body.append(
+        "<div class='chat-actions'>"
+        "<a href='/chat?new=1'><button type='button'>New chat</button></a>"
+        f"<form method='post' action='/chat/archive'>"
+        f"<input type='hidden' name='chat_id' value='{_h(chat_id)}'>"
+        "<button type='submit'>Archive chat</button>"
+        "</form>"
+        "</div>"
     )
 
-    body = [f"<div class='card'><h2>Chat ({_h(chat_id)})</h2>"]
     if not rows:
         body.append("<p>No messages yet.</p>")
     for row in rows:
         role = row.get("role") or "user"
         cls = "msg-assistant" if role == "assistant" else "msg-user"
+        meta_str = _h(json.dumps(row.get("metadata") or {}, ensure_ascii=False))
         msg = (
             f"<div class='{cls}'><div><strong>{_h(role)}</strong> "
-            f"<span style='color:#6b7280'>{_h(str(row.get('occurred_at','')))}</span></div>"
-            f"<div>{_h(row.get('content') or '')}</div>"
+            f"<span class='ts'>{_h(str(row.get('occurred_at','')))}</span></div>"
+            f"<div class='msg-body'>{_h(row.get('content') or '')}</div>"
         )
         if role == "assistant":
             iid = row.get("id") or ""
@@ -418,34 +538,58 @@ def chat(chat_id: str = "main") -> HTMLResponse:
                 "</form>"
                 "</div>"
             )
+        msg += f"<details><summary>details</summary><pre>{meta_str}</pre></details>"
         msg += "</div>"
         body.append(msg)
     body.append(
         "<h3>Send message</h3>"
-        "<form method='post' action='/chat/send'>"
+        "<form id='chat_form' method='post' action='/chat/send'>"
         f"<input type='hidden' name='chat_id' value='{_h(chat_id)}'>"
-        "<textarea name='message' rows='3' placeholder='Type your message'></textarea>"
+        "<textarea id='message_box' name='message' rows='3' placeholder='Type your message'></textarea>"
         "<button type='submit'>Send</button>"
-        "</form></div>"
+        "</form>"
+        "<script>"
+        "(function(){"
+        "var form=document.getElementById('chat_form');"
+        "var box=document.getElementById('message_box');"
+        "if(!form||!box){return;}"
+        "box.addEventListener('keydown',function(ev){"
+        "if(ev.key==='Enter' && !ev.shiftKey){ev.preventDefault(); form.requestSubmit();}"
+        "});"
+        "})();"
+        "</script>"
+        "</div></section></div>"
     )
     return HTMLResponse(layout("Chat", "".join(body)))
 
 
 @app.post("/chat/send")
-def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> RedirectResponse:
-    text = message.strip()
-    if not text:
+def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResponse:
+    chat_id = (chat_id or "").strip() or new_chat_id()
+    text_raw = message
+    if not text_raw.strip():
         return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
 
-    user_id = insert_interaction("user", text, {"source": "ui", "chat_id": chat_id})
+    history_turns = load_chat_history_for_prompt(chat_id=chat_id, limit=10)
+    pks_rows = load_pks_context(limit=6)
+    evidence_rows = load_local_evidence_context(query=text_raw, limit=5)
+    prev_user_summary = summarize_prev_user_turn(history_turns)
 
-    language_code = detect_message_language(text)
+    user_id = insert_interaction("user", text_raw, {"source": "ui", "chat_id": chat_id})
+
+    language_code = detect_message_language(text_raw)
     model, adapter_error = select_chat_model_adapter()
     system_prompt = build_system_prompt()
     task_prompt = build_task_prompt(
-        user_text=text,
+        user_text=text_raw,
         connectivity="OFFLINE",
-        retrieved_context={"chat_id": chat_id, "source": "ui.chat"},
+        retrieved_context={
+            "chat_id": chat_id,
+            "source": "ui.chat",
+            "history_turns": history_turns,
+            "pks_approved": pks_rows,
+            "local_evidence_top": evidence_rows,
+        },
     )
     task_prompt += (
         "\nChat generation requirements:\n"
@@ -467,19 +611,25 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
     clean_answer, removed_ratio = _sanitize_with_stats(raw_answer)
     if model is not None and _needs_repair(raw_answer, clean_answer, removed_ratio):
         try:
-            clean_answer = _repair_assistant_output(model, language_code, text, raw_answer)
+            clean_answer = _repair_assistant_output(model, language_code, text_raw, raw_answer)
         except Exception:
             clean_answer = localized_model_error(language_code, "unsafe model output removed")
     if model is not None and language_code == "hu" and not _looks_hungarian(clean_answer):
         try:
-            clean_answer = _repair_assistant_output(model, language_code, text, clean_answer)
+            clean_answer = _repair_assistant_output(model, language_code, text_raw, clean_answer)
         except Exception:
             clean_answer = "Nem tudok biztonságos, tiszta választ adni ebben a formában. Kérlek próbáld újra rövidebb kéréssel."
+
+    if prev_user_summary:
+        if language_code == "hu":
+            clean_answer = f"Előzmény szerint: {prev_user_summary}\n{clean_answer}"
+        else:
+            clean_answer = f"Context from previous turn: {prev_user_summary}\n{clean_answer}"
 
     clean_answer = sanitize_assistant_output(clean_answer)
     if not clean_answer:
         clean_answer = localized_model_error(language_code, "empty sanitized output")
-    answer = render_chat_default_output(clean_answer, language_code, text)
+    answer = render_chat_default_output(clean_answer, language_code, text_raw)
 
     insert_interaction(
         "assistant",
@@ -497,7 +647,7 @@ def chat_send(chat_id: str = Form("main"), message: str = Form(...)) -> Redirect
 
 @app.post("/chat/feedback")
 def chat_feedback(
-    chat_id: str = Form("main"),
+    chat_id: str = Form(""),
     interaction_id: str = Form(...),
     vote: str = Form(...),
     category: str = Form(""),

@@ -901,6 +901,95 @@ def test_74_chat_ollama_down_returns_clean_error_not_stub() -> None:
     assert_true("[null-adapter:" not in lowered and "nulladapter" not in lowered and "fingerprint" not in lowered, "ollama-down path must not produce stub output")
 
 
+def test_75_chat_new_chat_id_default_no_seed_messages() -> None:
+    client = ui_client()
+    old_chat = "golden-chat-old-75"
+    old_marker = "SEED_DEBUG_75_OLD"
+    client.post("/chat/send", data={"chat_id": old_chat, "message": old_marker})
+
+    resp = client.get("/chat", follow_redirects=False)
+    assert_true(resp.status_code == 303, "GET /chat without chat_id should redirect to a new chat_id")
+    location = resp.headers.get("location", "")
+    assert_true(location.startswith("/chat?chat_id="), "redirect should include generated chat_id")
+    new_chat_id = location.split("chat_id=", 1)[1].split("&", 1)[0]
+    assert_true(new_chat_id != "" and new_chat_id != old_chat, "new default chat_id should be unique")
+
+    page = client.get(location)
+    assert_true(page.status_code == 200, "redirected chat page should render")
+    assert_true(old_marker not in page.text, "new chat must not show messages from older chat threads")
+
+
+def test_76_chat_filters_by_chat_id_only() -> None:
+    client = ui_client()
+    chat_a = "golden-chat-a-76"
+    chat_b = "golden-chat-b-76"
+    marker_a = "THREAD_ONLY_A_76"
+    marker_b = "THREAD_ONLY_B_76"
+    client.post("/chat/send", data={"chat_id": chat_a, "message": marker_a})
+    client.post("/chat/send", data={"chat_id": chat_b, "message": marker_b})
+
+    page_a = client.get("/chat", params={"chat_id": chat_a})
+    assert_true(page_a.status_code == 200, "chat A page should render")
+    assert_true(marker_a in page_a.text, "chat A page should include chat A messages")
+    assert_true(marker_b not in page_a.text, "chat A page must exclude chat B messages")
+
+    page_b = client.get("/chat", params={"chat_id": chat_b})
+    assert_true(page_b.status_code == 200, "chat B page should render")
+    assert_true(marker_b in page_b.text, "chat B page should include chat B messages")
+    assert_true(marker_a not in page_b.text, "chat B page must exclude chat A messages")
+
+
+def test_77_chat_enter_send_shift_enter_newline() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-77"
+    multiline = "Első sor\nMásodik sor"
+    resp = client.post("/chat/send", data={"chat_id": chat_id, "message": multiline})
+    assert_true(resp.status_code in {200, 303}, "multiline chat send should succeed")
+
+    stored = db_scalar(
+        "SELECT content FROM interaction_events "
+        f"WHERE role='user' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assert_true(stored == multiline, "stored user interaction must preserve newline content")
+
+    page = client.get("/chat", params={"chat_id": chat_id})
+    assert_true(page.status_code == 200, "chat page should render after multiline send")
+    assert_true("Első sor" in page.text and "Második sor" in page.text, "multiline message should render in chat timeline")
+
+
+def test_78_chat_no_scaffolding_markers() -> None:
+    out = _chat_send_and_get_output("golden-chat-78", "Please give me a practical recommendation.")
+    lowered = out.lower()
+    forbidden = ["task prompt", "retrieved pks", "required behaviour", "active project", "```"]
+    assert_true(not any(m in lowered for m in forbidden), "chat output must not expose prompt scaffolding markers")
+
+
+def test_79_chat_language_mirror_hu_no_english_leak() -> None:
+    out = _chat_send_and_get_output("golden-chat-79", "Szia! Kérlek adj rövid napi tervet.")
+    lowered = out.lower()
+    assert_true("2) válasz / javaslat" in lowered, "Hungarian output should include Hungarian section labels")
+    assert_true("5) következő lépések" in lowered, "Hungarian next-actions label should be present")
+    assert_true("2) answer / recommendation" not in lowered, "Hungarian response must not switch to English template labels")
+    assert_true("next actions" not in lowered, "Hungarian response must not leak English section titles")
+
+
+def test_80_chat_uses_history_for_followup() -> None:
+    client = ui_client()
+    chat_id = "golden-chat-80"
+    first = client.post("/chat/send", data={"chat_id": chat_id, "message": "A projekt neve Nebula."})
+    assert_true(first.status_code in {200, 303}, "first turn should succeed")
+    second = client.post("/chat/send", data={"chat_id": chat_id, "message": "Mi a projekt neve?"})
+    assert_true(second.status_code in {200, 303}, "follow-up turn should succeed")
+
+    out = db_scalar(
+        "SELECT content FROM interaction_events "
+        f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    assert_true("Nebula" in out, "follow-up answer should use same-thread history context")
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -969,6 +1058,12 @@ def collect_tests() -> list:
         test_72_chat_decline_feedback_logging_unchanged,
         test_73_chat_sanitizer_repair_path,
         test_74_chat_ollama_down_returns_clean_error_not_stub,
+        test_75_chat_new_chat_id_default_no_seed_messages,
+        test_76_chat_filters_by_chat_id_only,
+        test_77_chat_enter_send_shift_enter_newline,
+        test_78_chat_no_scaffolding_markers,
+        test_79_chat_language_mirror_hu_no_english_leak,
+        test_80_chat_uses_history_for_followup,
     ]
 
 
@@ -977,25 +1072,33 @@ def main() -> None:
     parser.add_argument("--subset", type=int, default=0)
     args, _unknown = parser.parse_known_args()
 
-    run(["./tools/scripts/db_reset.sh"], expect_ok=True)
-    ingest_fixture(FIXTURE)
-    tests = collect_tests()
-    if args.subset and args.subset > 0:
-        tests = tests[: args.subset]
+    old_model = os.environ.get("HATORI_MODEL")
+    os.environ["HATORI_MODEL"] = "none"
+    try:
+        run(["./tools/scripts/db_reset.sh"], expect_ok=True)
+        ingest_fixture(FIXTURE)
+        tests = collect_tests()
+        if args.subset and args.subset > 0:
+            tests = tests[: args.subset]
 
-    failures: list[str] = []
-    for idx, test_fn in enumerate(tests, start=1):
-        try:
-            test_fn()
-            print(f"PASS {idx:02d} {test_fn.__name__}")
-        except Exception as exc:
-            failures.append(f"FAIL {idx:02d} {test_fn.__name__}: {exc}")
+        failures: list[str] = []
+        for idx, test_fn in enumerate(tests, start=1):
+            try:
+                test_fn()
+                print(f"PASS {idx:02d} {test_fn.__name__}")
+            except Exception as exc:
+                failures.append(f"FAIL {idx:02d} {test_fn.__name__}: {exc}")
 
-    if failures:
-        print("\n".join(failures))
-        raise SystemExit(1)
+        if failures:
+            print("\n".join(failures))
+            raise SystemExit(1)
 
-    print(f"PASS: golden tests ({len(tests)} cases)")
+        print(f"PASS: golden tests ({len(tests)} cases)")
+    finally:
+        if old_model is None:
+            os.environ.pop("HATORI_MODEL", None)
+        else:
+            os.environ["HATORI_MODEL"] = old_model
 
 
 if __name__ == "__main__":
