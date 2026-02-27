@@ -2,6 +2,29 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.0] - 2026-02-27
+
+### Added
+- Reproducible local setup tooling for integrator teams:
+  - `make bootstrap`
+  - `make models-pull`
+  - `make doctor`
+  - `make integration-acceptance`
+- Integrator acceptance runbook and API loop proofs for ingest/respond/outcome with idempotency and auth checks.
+- Task-oriented model routing structure (writer/drafter/judge lanes) in runtime wiring, with documented route-level model selection.
+
+### Changed
+- Local stable service ports standardized to 5-digit range:
+  - UI `23571`
+  - API `23572`
+- Health contract and smoke tooling aligned to configured UI/API ports.
+- Menu bar and launcher docs aligned with current local web surface links.
+- Documentation refresh across README, overview, roadmap, backlog, and integration docs.
+
+### Fixed
+- Stale port references in integration/client docs updated to current API port (`23572`).
+
+
 ## [0.6.0] - 2026-02-27
 
 ### Added

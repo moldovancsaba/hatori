@@ -123,7 +123,7 @@ Build a long-lived personal agent ("{hatori}") that:
 - Sprint 01: docs/11-roadmap/sprint-01.md
 
 ## Release
-- Current stable release: `v0.6.0`
+- Current stable release: `v0.7.0`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
 
 ## API Contract
