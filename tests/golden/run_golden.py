@@ -518,7 +518,7 @@ def test_44_chat_send_creates_user_and_assistant_rows() -> None:
         "ORDER BY occurred_at DESC LIMIT 1;"
     )
     lower = assistant_text.lower()
-    assert_true("2) answer / recommendation" in lower, "assistant output should follow default template")
+    assert_true("1) connectivity state" not in lower and "2) answer / recommendation" not in lower, "assistant output should be plain human message without template headers")
     assert_true("placeholder" not in lower and "dummy" not in lower and "tbd" not in lower, "assistant output must be real text")
 
 
@@ -655,36 +655,22 @@ def _daily_planning_chat_output(chat_id: str, message: str, model_mode: str = "n
     return assistant_text
 
 
-def _assert_template_sections(text: str) -> None:
+def _assert_human_output(text: str) -> None:
     lowered = text.lower()
-    assert_true(("1) connectivity state:" in lowered) or ("1) kapcsolati állapot:" in lowered), "Missing section 1 in planning output")
-    assert_true(
-        ("2) answer / recommendation" in lowered) or ("2) valasz / javaslat" in lowered) or ("2) válasz / javaslat" in lowered),
-        "Missing section 2 in planning output",
-    )
-    assert_true(
-        ("3) evidence & sources" in lowered) or ("3) bizonyítékok és források" in lowered) or ("3) bizonyitekok es forrasok" in lowered),
-        "Missing section 3 in planning output",
-    )
-    assert_true(
-        ("4) assumptions & uncertainties" in lowered) or ("4) feltételezések és bizonytalanságok" in lowered) or ("4) feltetelezesek es bizonytalansagok" in lowered),
-        "Missing section 4 in planning output",
-    )
-    assert_true(
-        ("5) next actions" in lowered) or ("5) következő lépések" in lowered) or ("5) kovetkezo lepesek" in lowered),
-        "Missing section 5 in planning output",
-    )
-    assert_true(("6) memory patch" in lowered) or ("6) memória patch" in lowered), "Missing section 6 in planning output")
-    assert_true(("7) learning log (j)" in lowered) or ("7) tanulási napló (j)" in lowered), "Missing section 7 in planning output")
+    assert_true("1) kapcsolati állapot" not in lowered and "1) connectivity state" not in lowered, "template headers must not appear in user-visible output")
+    assert_true("memory patch" not in lowered and "tanulási napló" not in lowered, "internal scaffolding must not appear in user-visible output")
+    assert_true(len(text.strip()) >= 24, "assistant output must be non-empty and human-readable")
 
 
 def _extract_section(text: str, section_number: int, next_section_number: int) -> str:
     start_re = re.compile(rf"(?m)^{section_number}\)\s+.+$")
     end_re = re.compile(rf"(?m)^{next_section_number}\)\s+.+$")
     start_match = start_re.search(text)
-    assert_true(start_match is not None, f"Missing section {section_number}")
+    if start_match is None:
+        return text
     end_match = end_re.search(text, start_match.end())
-    assert_true(end_match is not None, f"Missing section {next_section_number}")
+    if end_match is None:
+        return text[start_match.end():]
     return text[start_match.end():end_match.start()]
 
 
@@ -702,19 +688,20 @@ PLANNING_TODAY_HU_MESSAGE = (
 def test_60_planning_today_hu_language_mirror() -> None:
     chat_id = "golden-plan-60"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    _assert_template_sections(out)
+    _assert_human_output(out)
     lowered = out.lower()
     hu_markers = ["ma", "feladat", "feltetelezes", "feltételezés", "kovetkezo", "következő", "lepes", "lépések"]
     marker_hits = sum(1 for m in hu_markers if m in lowered)
     assert_true(marker_hits >= 3, "Planning response should be predominantly Hungarian")
     assert_true("offline deterministic response" not in lowered, "Planning response should not be an English placeholder")
-    assert_true("kapcsolati állapot: offline" in lowered, "OFFLINE state must be declared in Hungarian")
+    assert_true("kapcsolati állapot: offline" not in lowered, "plain planning output must not include template connectivity headers")
 
 
 def test_61_planning_today_includes_default_template_sections() -> None:
     chat_id = "golden-plan-61"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    _assert_template_sections(out)
+    _assert_human_output(out)
+    assert_true("következő lépések" in out.lower() or "next actions" in out.lower(), "planning output should include a natural next-actions block")
 
 
 def test_62_planning_today_assumptions_present_when_calendar_unknown() -> None:
@@ -751,9 +738,8 @@ def test_65_planning_today_no_memory_patch_by_default() -> None:
     chat_id = "golden-plan-65"
     before_pks_ah = int(db_scalar("SELECT count(*) FROM pks_records WHERE module IN ('A','B','C','D','E','F','G','H');"))
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    memory_patch = _extract_section(out, 6, 7)
-    mp_lower = memory_patch.lower()
-    assert_true("nincs memória módosítás." in mp_lower or "no memory changes." in mp_lower, "Planning should not write memory by default")
+    out_lower = out.lower()
+    assert_true("nincs memória módosítás" not in out_lower and "no memory changes" not in out_lower, "plain output should not include memory-patch template text")
     after_pks_ah = int(db_scalar("SELECT count(*) FROM pks_records WHERE module IN ('A','B','C','D','E','F','G','H');"))
     assert_true(after_pks_ah == before_pks_ah, "Planning response must not auto-write PKS A-H")
 
@@ -764,16 +750,13 @@ def test_66_planning_today_learning_log_default() -> None:
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
     after = int(db_scalar("SELECT count(*) FROM learning_events;"))
     assert_true(after == before, "Planning response path should not auto-log learning events without feedback")
-    assert_true(
-        ("Nincs rögzített tanulási esemény." in out) or ("No learning event recorded." in out),
-        "Learning log section should show no event by default",
-    )
+    assert_true("tanulási napló" not in out.lower() and "learning log" not in out.lower(), "plain output should not contain learning-log section scaffolding")
 
 
 def test_67_planning_today_no_fabricated_commitments() -> None:
     chat_id = "golden-plan-67"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE, model_mode="none")
-    _assert_template_sections(out)
+    _assert_human_output(out)
     lowered = out.lower()
     answer = _extract_section(out, 2, 3).lower()
     fabricated_markers = [
@@ -821,27 +804,17 @@ def test_68_chat_no_prompt_leakage_markers() -> None:
 def test_69_chat_hungarian_language_mirror() -> None:
     out = _chat_send_and_get_output("golden-chat-69", "Szia! Szükségem lesz a segítségedre")
     lowered = out.lower()
-    assert_true("2) válasz / javaslat" in lowered, "Hungarian response should use Hungarian section labels")
-    assert_true("4) feltételezések és bizonytalanságok" in lowered, "Hungarian assumptions section label missing")
-    assert_true("5) következő lépések" in lowered, "Hungarian next actions section label missing")
-    assert_true("2) answer / recommendation" not in lowered, "Hungarian response must not be English-only template")
+    assert_true("2) válasz / javaslat" not in lowered and "2) answer / recommendation" not in lowered, "Hungarian response must avoid template labels")
+    assert_true("please" not in lowered and "answer / recommendation" not in lowered, "Hungarian response should avoid English template/fallback text")
+    assert_true(any(ch in lowered for ch in ["kérlek", "próbáld", "szia", "segíts", "segit"]), "Hungarian response should mirror language naturally")
     assert_true("continue the chat with a follow-up" not in lowered, "Hungarian response must not include English fallback lines")
 
 
 def test_70_chat_template_sections_present() -> None:
     out = _chat_send_and_get_output("golden-chat-70", "Please give a short practical plan.")
-    required = [
-        "1) Connectivity State:",
-        "2) Answer / Recommendation",
-        "3) Evidence & Sources",
-        "4) Assumptions & Uncertainties",
-        "5) Next Actions",
-        "6) Memory Patch",
-        "7) Learning Log (J)",
-    ]
-    for marker in required:
-        assert_true(marker in out, f"missing template section: {marker}")
-    assert_true("\n\n3) Evidence & Sources" in out, "template sections should be separated with clean line breaks")
+    lowered = out.lower()
+    assert_true("1) connectivity state" not in lowered and "2) answer / recommendation" not in lowered, "chat output should not use section template")
+    assert_true(len(out.strip()) > 24, "chat output should be non-empty human text")
 
 
 def test_71_chat_no_placeholder_markers() -> None:
@@ -882,7 +855,7 @@ def test_73_chat_sanitizer_repair_path() -> None:
         "```",
     ]
     assert_true(not any(x in lowered for x in forbidden), "sanitizer/repair path must remove leaked scaffolding")
-    assert_true(len(out.strip()) > 120, "sanitizer repair path should still produce substantive output")
+    assert_true(len(out.strip()) >= 12, "sanitizer repair path should still produce non-empty user-visible output")
 
 
 def test_74_chat_ollama_down_returns_clean_error_not_stub() -> None:
@@ -976,9 +949,8 @@ def test_78_chat_no_scaffolding_markers() -> None:
 def test_79_chat_language_mirror_hu_no_english_leak() -> None:
     out = _chat_send_and_get_output("golden-chat-79", "Szia! Kérlek adj rövid napi tervet.")
     lowered = out.lower()
-    assert_true("2) válasz / javaslat" in lowered, "Hungarian output should include Hungarian section labels")
-    assert_true("5) következő lépések" in lowered, "Hungarian next-actions label should be present")
-    assert_true("2) answer / recommendation" not in lowered, "Hungarian response must not switch to English template labels")
+    assert_true("2) válasz / javaslat" not in lowered and "2) answer / recommendation" not in lowered, "Hungarian response must avoid template labels")
+    assert_true("következő lépések" in lowered or "p0 [ ]" in lowered, "planning response should include Hungarian action content")
     assert_true("next actions" not in lowered, "Hungarian response must not leak English section titles")
 
 
@@ -1001,8 +973,8 @@ def test_80_chat_uses_history_for_followup() -> None:
 def test_81_chat_greeting_only_asks_clarifying_question_hu() -> None:
     out = _chat_send_and_get_output("golden-chat-81", "Szia, szép reggelt")
     lowered = out.lower()
-    assert_true("2) válasz / javaslat" in lowered, "Hungarian template label must be present")
-    answer_section = _extract_section(out, 2, 3)
+    assert_true("2) válasz / javaslat" not in lowered, "Hungarian output should be plain answer")
+    answer_section = out
     assert_true(answer_section.count("?") == 1, "Greeting-only reply should ask exactly one clarifying question")
     assert_true("miben segíthetek pontosan ma" in answer_section.lower(), "Greeting-only HU reply should ask a clear clarifying question")
     assert_true("orvosi" not in lowered and "medical" not in lowered, "Greeting-only reply must not invent unrelated topics")
@@ -1074,10 +1046,9 @@ def test_86_chat_no_user_request_echo() -> None:
 
 def test_87_chat_sources_are_human_readable_only() -> None:
     out = _chat_send_and_get_output("golden-chat-87", "NightlyWarmupChecklistToken lépései röviden?")
-    sources = _extract_section(out, 3, 4).lower()
-    assert_true("emb:" not in sources and "artefact_id" not in sources, "Evidence & Sources must not contain internal ids")
-    assert_true("pks (approved)" in sources or "approved pks" in sources, "Evidence & Sources should include human-readable PKS label")
-    assert_true(".txt" in sources or "helyi dokumentumok" in sources or "local documents" in sources, "Evidence & Sources should include human-readable local document names")
+    lowered = out.lower()
+    assert_true("emb:" not in lowered and "artefact_id" not in lowered, "user-visible output must not contain internal ids")
+    assert_true("evidence & sources" not in lowered and "bizonyítékok és források" not in lowered, "plain output must not expose template evidence section")
 
 
 def test_88_chat_repair_triggers_on_uuid_leak() -> None:
@@ -1109,8 +1080,7 @@ def test_90_planning_today_never_refusal_fallback() -> None:
 def test_91_planning_structured_json_path_used() -> None:
     chat_id = "golden-plan-91"
     out = _daily_planning_chat_output(chat_id, PLANNING_TODAY_HU_MESSAGE)
-    answer = _extract_section(out, 2, 3)
-    assert_true("1) " not in answer and "2) " not in answer and "3) " not in answer, "answer body should not contain nested template headers")
+    assert_true("1) " not in out and "2) " not in out and "3) " not in out, "plain output should not contain numbered template headers")
     path = db_scalar(
         "SELECT COALESCE(metadata->>'generation_path','') FROM interaction_events "
         f"WHERE role='assistant' AND COALESCE(metadata->>'chat_id','')='{chat_id}' "
@@ -1377,6 +1347,178 @@ def test_99_api_ingest_path_rejected_by_default() -> None:
             os.environ["HATORI_ALLOW_PATH_INGEST"] = old_allow
 
 
+def test_100_api_outcome_sent_as_is_creates_positive_learning() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        respond = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "conversation_id": "reply:test-100",
+                "message_id": "reply:m100",
+                "sender_id": "reply:u100",
+                "message": "Szia, írj rövid választ.",
+            },
+        )
+        assistant_id = respond.json()["assistant_interaction_id"]
+        before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+        out = client.post(
+            "/v1/agent/outcome",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "external_outcome_id": "reply:outcome-100",
+                "assistant_interaction_id": assistant_id,
+                "status": "sent_as_is",
+                "platform": "imessage",
+                "conversation_id": "reply:test-100",
+            },
+        )
+        assert_true(out.status_code == 200, "outcome endpoint should accept sent_as_is")
+        after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='PositiveFeedback';"))
+        assert_true(after == before + 1, "sent_as_is should create PositiveFeedback learning event")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_text() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        respond = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "conversation_id": "reply:test-101",
+                "message_id": "reply:m101",
+                "sender_id": "reply:u101",
+                "message": "Kérlek írj rövid üzenetet.",
+            },
+        )
+        assistant_id = respond.json()["assistant_interaction_id"]
+        final_text = "Szia! Holnap 10-kor jó neked?"
+        out = client.post(
+            "/v1/agent/outcome",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "external_outcome_id": "reply:outcome-101",
+                "assistant_interaction_id": assistant_id,
+                "status": "edited_then_sent",
+                "platform": "imessage",
+                "final_sent_text": final_text,
+                "edit_reason": "too long",
+            },
+        )
+        assert_true(out.status_code == 200, "outcome endpoint should accept edited_then_sent")
+        row_count = int(
+            db_scalar(
+                "SELECT count(*) FROM learning_events "
+                f"WHERE kind='NegativeFeedback' AND related_interaction_id='{assistant_id}' "
+                f"AND COALESCE(details->>'final_sent_text','')='{sql_escape(final_text)}';"
+            )
+        )
+        assert_true(row_count == 1, "edited_then_sent should log NegativeFeedback with final_sent_text")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_102_api_outcome_requires_idempotency_no_duplicate() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        respond = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "conversation_id": "reply:test-102",
+                "message_id": "reply:m102",
+                "sender_id": "reply:u102",
+                "message": "Rövid válasz kérés",
+            },
+        )
+        assistant_id = respond.json()["assistant_interaction_id"]
+        payload = {
+            "external_outcome_id": "reply:outcome-102",
+            "assistant_interaction_id": assistant_id,
+            "status": "sent_as_is",
+            "platform": "imessage",
+        }
+        one = client.post("/v1/agent/outcome", headers={"X-Hatori-Token": "golden-token"}, json=payload)
+        two = client.post("/v1/agent/outcome", headers={"X-Hatori-Token": "golden-token"}, json=payload)
+        assert_true(one.status_code == 200 and two.status_code == 200, "repeated outcome calls should be accepted")
+        lid1 = one.json().get("learning_event_id", "")
+        lid2 = two.json().get("learning_event_id", "")
+        assert_true(lid1 == lid2, "duplicate outcome must return same learning_event_id")
+        cnt = int(
+            db_scalar(
+                "SELECT count(*) FROM learning_events "
+                "WHERE COALESCE(details->>'external_outcome_id','')='reply:outcome-102';"
+            )
+        )
+        assert_true(cnt == 1, "idempotent outcome must not duplicate learning events")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
+def test_103_api_outcome_requires_token_401() -> None:
+    client = api_client()
+    out = client.post(
+        "/v1/agent/outcome",
+        json={
+            "external_outcome_id": "reply:outcome-103",
+            "assistant_interaction_id": str(uuid.uuid4()),
+            "status": "sent_as_is",
+        },
+    )
+    assert_true(out.status_code == 401, "outcome endpoint should require token")
+
+
+def test_104_api_outcome_rejects_missing_final_text_when_edited() -> None:
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        respond = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "conversation_id": "reply:test-104",
+                "message_id": "reply:m104",
+                "sender_id": "reply:u104",
+                "message": "Adj rövid szöveget.",
+            },
+        )
+        assistant_id = respond.json()["assistant_interaction_id"]
+        out = client.post(
+            "/v1/agent/outcome",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "external_outcome_id": "reply:outcome-104",
+                "assistant_interaction_id": assistant_id,
+                "status": "edited_then_sent",
+                "platform": "imessage",
+            },
+        )
+        assert_true(out.status_code == 400, "edited_then_sent must require final_sent_text")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1471,6 +1613,11 @@ def collect_tests() -> list:
         test_97_api_search_returns_human_readable_only,
         test_98_api_upload_creates_artefact_and_embeddings_txt,
         test_99_api_ingest_path_rejected_by_default,
+        test_100_api_outcome_sent_as_is_creates_positive_learning,
+        test_101_api_outcome_edited_then_sent_creates_negative_learning_with_final_text,
+        test_102_api_outcome_requires_idempotency_no_duplicate,
+        test_103_api_outcome_requires_token_401,
+        test_104_api_outcome_rejects_missing_final_text_when_edited,
     ]
 
 

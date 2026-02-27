@@ -86,6 +86,18 @@ class FeedbackBody(BaseModel):
     external_request_id: str | None = None
 
 
+class OutcomeBody(BaseModel):
+    external_outcome_id: str
+    assistant_interaction_id: str
+    conversation_id: str | None = None
+    platform: str = "other"
+    recipient_id: str | None = None
+    status: str
+    final_sent_text: str | None = None
+    edit_reason: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class IngestBody(BaseModel):
     external_event_id: str | None = None
     event_id: str | None = None
@@ -556,6 +568,66 @@ def agent_feedback(body: FeedbackBody, x_hatori_token: str | None = Header(defau
         related_interaction_id=body.assistant_interaction_id,
     )
     return {"learning_event_id": lid}
+
+
+@app.post("/v1/agent/outcome")
+def agent_outcome(body: OutcomeBody, x_hatori_token: str | None = Header(default=None, alias="X-Hatori-Token")) -> dict[str, Any]:
+    require_token(x_hatori_token)
+    external_outcome_id = (body.external_outcome_id or "").strip()
+    if not external_outcome_id:
+        raise HTTPException(status_code=400, detail="external_outcome_id is required")
+    if not ui.UUID_RE.match(body.assistant_interaction_id):
+        raise HTTPException(status_code=400, detail="invalid assistant_interaction_id")
+    role = ui.psql(
+        "SELECT role FROM interaction_events "
+        f"WHERE id='{ui._esc_sql(body.assistant_interaction_id)}' LIMIT 1;"
+    ).strip()
+    if role != "assistant":
+        raise HTTPException(status_code=400, detail="assistant_interaction_id must reference assistant row")
+
+    existing = ui.psql(
+        "SELECT id FROM learning_events "
+        f"WHERE COALESCE(details->>'external_outcome_id','')='{ui._esc_sql(external_outcome_id)}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    ).strip()
+    if existing:
+        return {"learning_event_id": existing, "duplicate": True}
+
+    status = (body.status or "").strip().lower()
+    if status not in {"sent_as_is", "edited_then_sent", "not_sent"}:
+        raise HTTPException(status_code=400, detail="status must be sent_as_is|edited_then_sent|not_sent")
+    final_sent_text = (body.final_sent_text or "").strip()
+    if status == "edited_then_sent" and not final_sent_text:
+        raise HTTPException(status_code=400, detail="final_sent_text is required when status=edited_then_sent")
+
+    if status == "sent_as_is":
+        kind = "PositiveFeedback"
+        confidence = "High"
+    elif status == "edited_then_sent":
+        kind = "NegativeFeedback"
+        confidence = "High"
+    else:
+        kind = "Neutral"
+        confidence = "Low"
+
+    details = {
+        "status": status,
+        "external_outcome_id": external_outcome_id,
+        "platform": (body.platform or "other").strip() or "other",
+        "conversation_id": (body.conversation_id or "").strip(),
+        "recipient_id": (body.recipient_id or "").strip(),
+        "edit_reason": (body.edit_reason or "").strip(),
+        "final_sent_text": final_sent_text,
+        "metadata": body.metadata or {},
+        "ui_context": {"route": "/v1/agent/outcome", "source": "reply"},
+    }
+    lid = ui.insert_learning(
+        kind=kind,
+        confidence=confidence,
+        details=details,
+        related_interaction_id=body.assistant_interaction_id,
+    )
+    return {"learning_event_id": lid, "duplicate": False}
 
 
 @app.post("/v1/ingest/event")

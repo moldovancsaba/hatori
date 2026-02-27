@@ -23,7 +23,6 @@ from hatori.model import OllamaAdapter
 from hatori.model import prefer_ollama_if_available
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
-from hatori.prompts import render_default_output
 from hatori.cli import search_runtime
 
 CID = os.environ.get("CID", "hatori-pg")
@@ -750,40 +749,26 @@ def render_chat_default_output(
         assumptions = [x for x in assumptions_override if str(x).strip()]
     if next_actions_override:
         next_actions = [x for x in next_actions_override if str(x).strip()]
-    if language_code == "hu":
-        evidence_items = source_lines or ["Nincs helyi bizonyíték."]
-        evidence = "\n".join(f"- {x}" for x in evidence_items)
-        assumptions_text = "\n".join(f"- {x}" for x in assumptions)
-        actions_text = "\n".join(next_actions)
-        return (
-            "1) Kapcsolati állapot: OFFLINE\n"
-            "2) Válasz / Javaslat\n"
-            f"{answer}\n\n"
-            "3) Bizonyítékok és Források\n"
-            f"{evidence}\n\n"
-            "4) Feltételezések és Bizonytalanságok\n"
-            f"{assumptions_text}\n\n"
-            "5) Következő lépések\n"
-            f"{actions_text}\n\n"
-            "6) Memória patch\n"
-            "Nincs memória módosítás.\n\n"
-            "7) Tanulási napló (J)\n"
-            "Nincs rögzített tanulási esemény."
-        )
+    answer_clean = (answer or "").strip()
+    if not planning:
+        return answer_clean
 
-    payload = {
-        "connectivity_state": "OFFLINE",
-        "answer": answer,
-        "evidence": [
-            {"citation": "local", "title": x, "score": "n/a", "excerpt": ""}
-            for x in (source_lines or ["No local evidence found."])
-        ],
-        "assumptions": assumptions,
-        "next_actions": next_actions,
-        "memory_patch": "No memory changes.",
-        "learning_log": "No learning event recorded.",
-    }
-    return render_default_output(payload)
+    assumptions_text = "\n".join(f"- {x}" for x in assumptions)
+    actions_text = "\n".join(next_actions)
+    if language_code == "hu":
+        parts = [answer_clean]
+        if assumptions_text:
+            parts.append(f"Feltételezések:\n{assumptions_text}")
+        if actions_text:
+            parts.append(f"Következő lépések:\n{actions_text}")
+        return "\n\n".join([p for p in parts if p.strip()])
+
+    parts = [answer_clean]
+    if assumptions_text:
+        parts.append(f"Assumptions:\n{assumptions_text}")
+    if actions_text:
+        parts.append(f"Next actions:\n{actions_text}")
+    return "\n\n".join([p for p in parts if p.strip()])
 
 
 def layout(title: str, inner: str) -> str:
