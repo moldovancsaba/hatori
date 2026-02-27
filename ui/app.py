@@ -19,8 +19,8 @@ from fastapi.responses import RedirectResponse
 
 from hatori.embeddings import get_embeddings_adapter
 from hatori.model import get_model_adapter
-from hatori.model import OllamaAdapter
-from hatori.model import prefer_ollama_if_available
+from hatori.model_gateway import get_gateway_model_adapter
+from hatori.model_gateway import get_model_gateway
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
 from hatori.cli import search_runtime
@@ -470,12 +470,22 @@ def _has_forbidden_user_visible_markers(text: str) -> bool:
 
 
 def select_chat_model_adapter():
-    explicit = os.environ.get("HATORI_MODEL", "").strip().lower()
-    if explicit:
+    explicit = (os.environ.get("HATORI_MODEL") or "").strip().lower()
+    if explicit and explicit not in {"gateway"}:
         return get_model_adapter(), None
-    if prefer_ollama_if_available():
-        return OllamaAdapter(), None
-    return None, "Ollama not running; start it via brew services start ollama."
+    return get_gateway_model_adapter(), None
+
+
+def adapter_backend_info(model) -> tuple[str, bool]:
+    backend_used = (getattr(model, "last_backend_used", "") or "").strip()
+    if not backend_used:
+        backend_used = (getattr(model, "name", "") or "none").strip() or "none"
+    fallback_used = bool(getattr(model, "last_backend_fallback_used", False))
+    return backend_used, fallback_used
+
+
+def gateway_health_status() -> dict:
+    return get_model_gateway().health_status()
 
 
 def is_daily_planning_request(text: str) -> bool:
@@ -1057,7 +1067,8 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             {
                 "source": "ui",
                 "chat_id": chat_id,
-                "model_adapter": model.name if model is not None else "unavailable",
+                "model_adapter": adapter_backend_info(model)[0] if model is not None else "unavailable",
+                "backend_fallback_used": adapter_backend_info(model)[1] if model is not None else False,
                 "generation_path": "planning_structured",
                 "language": language_code,
                 "related_user_interaction_id": user_id,
@@ -1137,7 +1148,8 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         {
             "source": "ui",
             "chat_id": chat_id,
-            "model_adapter": model.name if model is not None else "unavailable",
+            "model_adapter": adapter_backend_info(model)[0] if model is not None else "unavailable",
+            "backend_fallback_used": adapter_backend_info(model)[1] if model is not None else False,
             "generation_path": "standard",
             "language": language_code,
             "related_user_interaction_id": user_id,
@@ -1238,8 +1250,9 @@ async def upload(file: UploadFile = File(...)) -> HTMLResponse:
     if parsed:
         text = data.decode("utf-8", errors="ignore")
         chunks = chunk_text(text)
+        embedding = get_model_gateway().embed(chunks)
         adapter = get_embeddings_adapter()
-        vectors = adapter.embed(chunks) if chunks else []
+        vectors = embedding.vectors if chunks else []
         for idx, chunk in enumerate(chunks):
             emb_id = str(uuid.uuid4())
             chunk_id = f"{artefact_id}:{idx}"
@@ -1250,6 +1263,8 @@ async def upload(file: UploadFile = File(...)) -> HTMLResponse:
                 "path": str(target),
                 "embedder": adapter.name,
                 "embed_dim": adapter.dimension,
+                "embedding_model_id": embedding.embedding_model_id,
+                "embedding_index_version": embedding.embedding_index_version,
             }
             psql(
                 "INSERT INTO embeddings (id, artefact_id, chunk_id, content, embedding, metadata) "

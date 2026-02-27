@@ -50,6 +50,24 @@ export HATORI_OLLAMA_MODEL=llama3.2:3b
 python -m hatori.cli model-smoke "Respond in one sentence"
 ```
 
+MLX backend on Apple Silicon (preferred in gateway when available):
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install mlx-lm
+export HATORI_MLX_MODEL=mlx-community/Apertus-8B-Instruct-2509-8bit
+export HATORI_GENERATOR_ORDER=mlx,ollama
+API_PORT=8094 make run-api
+curl -s http://127.0.0.1:8094/v1/health | python3 -m json.tool
+```
+
+Expected `/v1/health` machine fields:
+- `generator_backends.mlx.available`
+- `generator_backends.ollama.available`
+- `breaker`
+- `generator_order`
+
 Launcher defaults:
 - `HATORI_MODEL=ollama`
 - `HATORI_OLLAMA_MODEL=llama3.2:3b`

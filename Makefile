@@ -35,6 +35,14 @@ run-api:
 	fi && \
 	python -m uvicorn api.app:app --host "$$HOST" --port $${API_PORT:-8094}
 
+.PHONY: model-health
+model-health:
+	@curl -s http://127.0.0.1:$${API_PORT:-8094}/v1/health | python3 -m json.tool
+
+.PHONY: run-mlx-smoke
+run-mlx-smoke:
+	. .venv/bin/activate && python -c "from hatori.backends.mlx_backend import MlxBackend; b=MlxBackend(); ok,detail=b.healthcheck(timeout_s=2); (_ for _ in ()).throw(SystemExit(f'MLX unavailable: {detail}')) if not ok else None; print('MLX backend is available:', b.model); print('Smoke:', b.generate('Respond with one short line.', timeout_s=15)[:200])"
+
 .PHONY: up
 up:
 	@docker ps -a --format "{{.Names}}" | grep -qx hatori-pg && docker start hatori-pg || docker run -d --name hatori-pg -e POSTGRES_PASSWORD=hatori -e POSTGRES_USER=hatori -e POSTGRES_DB=hatori -p 5432:5432 pgvector/pgvector:pg16

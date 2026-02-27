@@ -105,6 +105,19 @@ Build a long-lived personal agent ("Hatori") that:
   - optional: `export HATORI_LLAMA_THREADS=4`
   - smoke test: `python -m hatori.cli model-smoke "Respond with one short line"`
 
+## Model Gateway (generator routing)
+- Internal gateway module: `hatori/model_gateway.py`
+- Stable interface:
+  - `generate(prompt, opts) -> GatewayResult`
+  - `embed(texts, opts) -> EmbeddingResult`
+- Generator order:
+  - default `HATORI_GENERATOR_ORDER=mlx,ollama`
+  - MLX preferred when available and configured (`HATORI_MLX_MODEL`)
+  - automatic fallback to Ollama on MLX errors
+- Circuit breaker:
+  - process-local breaker skips repeatedly failing backends for cooldown windows.
+  - machine-readable breaker state is exposed in `/v1/health`.
+
 ## Planning
 - Roadmap: docs/11-roadmap/roadmap.md
 - Backlog: docs/11-roadmap/backlog.md

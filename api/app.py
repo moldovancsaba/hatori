@@ -17,7 +17,6 @@ from fastapi import UploadFile
 from pydantic import BaseModel
 from pydantic import Field
 
-from hatori.embeddings import get_embeddings_adapter
 import ui.app as ui
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -52,12 +51,11 @@ def require_token(x_hatori_token: str | None = Header(default=None, alias="X-Hat
 
 
 def _model_status() -> tuple[str, str]:
-    explicit = (os.environ.get("HATORI_MODEL") or "").strip().lower()
-    if explicit:
-        if explicit == "ollama":
-            return "ollama", (os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b").strip()
-        return explicit, ""
-    if ui.prefer_ollama_if_available():
+    hs = ui.gateway_health_status()
+    backends = hs.get("generator_backends", {})
+    if backends.get("mlx", {}).get("available"):
+        return "mlx", (os.environ.get("HATORI_MLX_MODEL") or "").strip()
+    if backends.get("ollama", {}).get("available"):
         return "ollama", (os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b").strip()
     return "none", ""
 
@@ -143,8 +141,9 @@ def _insert_embeddings_from_text(artefact_id: str, text: str, meta_base: dict[st
     chunks = ui.chunk_text(text)
     if not chunks:
         return 0
-    adapter = get_embeddings_adapter()
-    vectors = adapter.embed(chunks)
+    embedding = ui.get_model_gateway().embed(chunks)
+    adapter = ui.get_embeddings_adapter()
+    vectors = embedding.vectors
     created = 0
     for idx, chunk in enumerate(chunks):
         emb_id = str(uuid.uuid4())
@@ -155,6 +154,8 @@ def _insert_embeddings_from_text(artefact_id: str, text: str, meta_base: dict[st
             "index": idx,
             "embedder": adapter.name,
             "embed_dim": adapter.dimension,
+            "embedding_model_id": embedding.embedding_model_id,
+            "embedding_index_version": embedding.embedding_index_version,
         }
         ui.psql(
             "INSERT INTO embeddings (id, artefact_id, chunk_id, content, embedding, metadata) "
@@ -271,7 +272,7 @@ def _path_allowed(path: Path) -> bool:
     return False
 
 
-def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[str, str, list[str], str]:
+def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[str, str, list[str], str, str, bool]:
     language_code = ui.detect_message_language(message)
     history_turns = ui.load_chat_history_for_prompt(chat_id=conversation_id, limit=10)
     pks_rows = ui.load_pks_context(limit=6)
@@ -280,12 +281,12 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
 
     if ui.is_greeting_only(message, language_code):
         answer = ui.render_chat_default_output(ui.greeting_clarifying_answer(language_code), language_code, message, sources=source_lines)
-        return answer, language_code, source_lines, "greeting_shortcut"
+        return answer, language_code, source_lines, "greeting_shortcut", "greeting-shortcut", False
 
     followup_answer = ui.resolve_followup_from_history(message, history_turns, language_code)
     if followup_answer:
         answer = ui.render_chat_default_output(followup_answer, language_code, message, sources=source_lines)
-        return answer, language_code, source_lines, "history_shortcut"
+        return answer, language_code, source_lines, "history_shortcut", "history-shortcut", False
 
     model, adapter_error = ui.select_chat_model_adapter()
     if ui.is_daily_planning_request(message):
@@ -367,7 +368,8 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
                 },
                 related_interaction_id=user_id,
             )
-        return rendered, language_code, source_lines, "planning_structured"
+        backend_used, fallback_used = ui.adapter_backend_info(model)
+        return rendered, language_code, source_lines, "planning_structured", backend_used, fallback_used
 
     system_prompt = ui.build_system_prompt()
     task_prompt = ui.build_task_prompt(
@@ -437,7 +439,8 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
         clean_answer = ui.localized_model_error(language_code, "empty sanitized output")
 
     rendered = ui.render_chat_default_output(clean_answer, language_code, message, sources=source_lines)
-    return rendered, language_code, source_lines, "standard"
+    backend_used, fallback_used = ui.adapter_backend_info(model)
+    return rendered, language_code, source_lines, "standard", backend_used, fallback_used
 
 
 @app.get("/v1/health")
@@ -448,6 +451,7 @@ def health() -> dict[str, Any]:
     except Exception:
         db = "fail"
     model, model_name = _model_status()
+    hs = ui.gateway_health_status()
     return {
         "status": "ok",
         "version": VERSION_FILE.read_text(encoding="utf-8").strip(),
@@ -456,6 +460,9 @@ def health() -> dict[str, Any]:
         "db": db,
         "model": model,
         "model_name": model_name,
+        "generator_order": hs.get("generator_order", []),
+        "generator_backends": hs.get("generator_backends", {}),
+        "breaker": hs.get("breaker", {}),
     }
 
 
@@ -470,7 +477,9 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
     if external_request_id:
         existing_rows = ui.psql_json(
             "SELECT id, COALESCE(metadata->>'related_user_interaction_id','') AS related_id, content, "
-            "COALESCE(metadata->>'language','') AS language "
+            "COALESCE(metadata->>'language','') AS language, "
+            "COALESCE(metadata->>'model_adapter','none') AS backend_used, "
+            "COALESCE(metadata->>'backend_fallback_used','false') AS backend_fallback_used "
             "FROM interaction_events "
             "WHERE role='assistant' "
             "AND COALESCE(metadata->>'source','')='reply' "
@@ -493,6 +502,8 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
                 "assistant_message": row.get("content", ""),
                 "language": language,
                 "connectivity_state": "OFFLINE",
+                "backend_used": row.get("backend_used", "none"),
+                "backend_fallback_used": str(row.get("backend_fallback_used", "false")).lower() == "true",
                 "sources": source_lines,
             }
 
@@ -510,8 +521,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
         "extra": (body.metadata or {}).get("extra", {}),
     }
     user_id = ui.insert_interaction("user", message, meta)
-    assistant_message, language_code, source_lines, gen_path = _generate_reply(message, conversation_id, user_id)
-    model_adapter, _adapter_err = ui.select_chat_model_adapter()
+    assistant_message, language_code, source_lines, gen_path, backend_used, backend_fallback_used = _generate_reply(message, conversation_id, user_id)
     assistant_id = ui.insert_interaction(
         "assistant",
         assistant_message,
@@ -521,7 +531,8 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
             "conversation_id": conversation_id,
             "message_id": body.message_id,
             "sender_id": body.sender_id,
-            "model_adapter": model_adapter.name if model_adapter is not None else "unavailable",
+            "model_adapter": backend_used,
+            "backend_fallback_used": backend_fallback_used,
             "generation_path": gen_path,
             "language": language_code,
             "external_request_id": external_request_id,
@@ -536,6 +547,8 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
         "assistant_message": assistant_message,
         "language": language_code,
         "connectivity_state": "OFFLINE",
+        "backend_used": backend_used,
+        "backend_fallback_used": backend_fallback_used,
         "sources": source_lines,
     }
 

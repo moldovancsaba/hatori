@@ -5,7 +5,7 @@ Copy/paste this entire prompt into your developer agent.
 ---
 
 You are implementing Hatori inside `/Users/moldovancsaba/Projects/reply-hatori`.
-Baseline tag: `v0.5.0`
+Baseline tag: `v0.6.0`
 
 Non-negotiables:
 - Canonical policy: `docs/01-charters/hatori-charter-v3.md`
@@ -26,6 +26,9 @@ Current objectives (Sprint 04 baseline):
 3) Keep governance and auditability intact:
    - no auto-write to A–H without explicit action
    - PKS status changes write `audit_events`
+4) Model Gateway routing:
+   - generator order `mlx,ollama` with automatic fallback
+   - expose backend availability + breaker state in `/v1/health` machine fields
 
 Acceptance tests:
 - `make reset && make test` passes.
