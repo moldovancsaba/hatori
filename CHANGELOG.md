@@ -2,6 +2,20 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.3] - 2026-02-28
+
+### Added
+- `/v1/health` now returns machine-readable runtime and routing telemetry for local monitoring:
+  - `runtime_status` (MLX/Ollama availability + model info)
+  - `task_model_routing` (writer/drafter/judge lane backend+model+fallback state)
+
+### Changed
+- Menu bar health panel upgraded to a mini dashboard with explicit lines for:
+  - product and version (`{hatori} v<version>`)
+  - runtime states (MLX/Ollama up/down)
+  - writer/drafter/judge model lane status
+- Existing health fields remain backward-compatible (`status`, `version`, `db`, `model`, `model_name`, ports).
+
 ## [0.7.2] - 2026-02-28
 
 ### Changed

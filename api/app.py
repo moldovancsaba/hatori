@@ -22,6 +22,9 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from hatori.embeddings import get_embeddings_adapter
+from hatori.model import MlxAdapter
+from hatori.model import OllamaAdapter
+from hatori.model import get_task_model_adapter
 import ui.app as ui
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -111,6 +114,50 @@ def _model_status() -> tuple[str, str]:
     if ui.prefer_ollama_if_available():
         return "ollama", (os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b").strip()
     return "none", ""
+
+
+def _compact_runtime_health(raw: dict[str, Any], backend: str) -> dict[str, Any]:
+    return {
+        "backend": backend,
+        "ok": bool(raw.get("ok")),
+        "model": (raw.get("model") or "").strip() if isinstance(raw.get("model"), str) else "",
+        "model_available": raw.get("model_available"),
+        "error": (raw.get("error") or "").strip() if isinstance(raw.get("error"), str) else "",
+    }
+
+
+def _runtime_status() -> dict[str, Any]:
+    mlx_model = (os.environ.get("HATORI_MLX_MODEL") or "").strip()
+    mlx = MlxAdapter(model=mlx_model or None).healthcheck()
+    ollama = OllamaAdapter(timeout=2).healthcheck()
+    return {
+        "mlx": _compact_runtime_health(mlx, "mlx"),
+        "ollama": _compact_runtime_health(ollama, "ollama"),
+    }
+
+
+def _task_routing_status() -> dict[str, Any]:
+    lane_map = {
+        "writer": "reply_write",
+        "drafter": "context_pack",
+        "judge": "answer_score",
+    }
+    out: dict[str, Any] = {}
+    for lane, task in lane_map.items():
+        adapter, err, meta = get_task_model_adapter(task)
+        backend_used = (meta or {}).get("backend_used") if isinstance(meta, dict) else None
+        model_used = (meta or {}).get("model_used") if isinstance(meta, dict) else None
+        route = (meta or {}).get("route") if isinstance(meta, dict) else None
+        out[lane] = {
+            "task": task,
+            "ok": adapter is not None,
+            "backend": backend_used or (adapter.name if adapter is not None else "none"),
+            "model": model_used or (getattr(adapter, "model", "") if adapter is not None else ""),
+            "fallback_used": bool((meta or {}).get("fallback_used")) if isinstance(meta, dict) else False,
+            "error": (err or "").strip(),
+            "route": route if isinstance(route, dict) else {},
+        }
+    return out
 
 
 def _conversation_id(value: str | None) -> str:
@@ -322,7 +369,7 @@ def _path_allowed(path: Path) -> bool:
     return False
 
 
-def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[str, str, list[str], str]:
+def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[dict[str, Any], str, list[str], str]:
     language_code = ui.detect_message_language(message)
     history_turns = ui.load_chat_history_for_prompt(chat_id=conversation_id, limit=10)
     pks_rows = ui.load_pks_context(limit=6)
@@ -330,13 +377,13 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
     source_lines = ui.build_human_sources_lines(language_code, pks_rows, evidence_rows)
 
     if ui.is_greeting_only(message, language_code):
-        answer = ui.render_chat_default_output(ui.greeting_clarifying_answer(language_code), language_code, message, sources=source_lines)
-        return answer, language_code, source_lines, "greeting_shortcut"
+        struct = ui.get_structured_reply(ui.greeting_clarifying_answer(language_code), language_code, message, sources=source_lines)
+        return struct, language_code, source_lines, "greeting_shortcut"
 
     followup_answer = ui.resolve_followup_from_history(message, history_turns, language_code)
     if followup_answer:
-        answer = ui.render_chat_default_output(followup_answer, language_code, message, sources=source_lines)
-        return answer, language_code, source_lines, "history_shortcut"
+        struct = ui.get_structured_reply(followup_answer, language_code, message, sources=source_lines)
+        return struct, language_code, source_lines, "history_shortcut"
 
     is_planning = ui.is_daily_planning_request(message)
     model_task = "plan_write" if is_planning else "reply_write"
@@ -420,7 +467,15 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
                 },
                 related_interaction_id=user_id,
             )
-        return rendered, language_code, source_lines, "planning_structured"
+        struct = ui.get_structured_reply(
+            answer=plan_answer,
+            language_code=language_code,
+            user_text=message,
+            sources=source_lines,
+            assumptions_override=assumptions,
+            next_actions_override=actions
+        )
+        return struct, language_code, source_lines, "planning_structured"
 
     system_prompt = ui.build_system_prompt()
     drafter_pack = ui.build_drafter_context_pack(message, language_code, history_turns, pks_rows, evidence_rows)
@@ -491,8 +546,13 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
     if not clean_answer:
         clean_answer = ui.localized_model_error(language_code, "empty sanitized output")
 
-    rendered = ui.render_chat_default_output(clean_answer, language_code, message, sources=source_lines)
-    return rendered, language_code, source_lines, "standard"
+    struct = ui.get_structured_reply(
+        answer=clean_answer,
+        language_code=language_code,
+        user_text=message,
+        sources=source_lines
+    )
+    return struct, language_code, source_lines, "standard"
 
 
 @app.get("/v1/health")
@@ -503,6 +563,8 @@ def health() -> dict[str, Any]:
     except Exception:
         db = "fail"
     model, model_name = _model_status()
+    runtime_status = _runtime_status()
+    task_model_routing = _task_routing_status()
     return {
         "status": "ok",
         "version": VERSION_FILE.read_text(encoding="utf-8").strip(),
@@ -511,6 +573,8 @@ def health() -> dict[str, Any]:
         "db": db,
         "model": model,
         "model_name": model_name,
+        "runtime_status": runtime_status,
+        "task_model_routing": task_model_routing,
         "request_counts_last_minute": _RATE_LIMITER.counts_last_minute(),
     }
 
@@ -567,11 +631,11 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
         "extra": (body.metadata or {}).get("extra", {}),
     }
     user_id = ui.insert_interaction("user", message, meta)
-    assistant_message, language_code, source_lines, gen_path = _generate_reply(message, conversation_id, user_id)
+    assistant_struct, language_code, source_lines, gen_path = _generate_reply(message, conversation_id, user_id)
     model_adapter, _adapter_err = ui.select_chat_model_adapter(task="plan_write" if ui.is_daily_planning_request(message) else "reply_write")
-    assistant_id = ui.insert_interaction(
+    assistant_interaction_id = ui.insert_interaction(
         "assistant",
-        assistant_message,
+        assistant_struct["answer"],
         {
             "source": "reply",
             "chat_id": conversation_id,
@@ -589,10 +653,12 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
         "conversation_id": conversation_id,
         "message_id": body.message_id,
         "user_interaction_id": user_id,
-        "assistant_interaction_id": assistant_id,
-        "assistant_message": assistant_message,
+        "assistant_interaction_id": assistant_interaction_id,
+        "assistant_message": assistant_struct["answer"],
+        "next_actions": assistant_struct["next_actions"],
+        "assumptions": assistant_struct["assumptions"],
         "language": language_code,
-        "connectivity_state": "OFFLINE",
+        "connectivity_state": assistant_struct["connectivity_state"],
         "sources": source_lines,
     }
 

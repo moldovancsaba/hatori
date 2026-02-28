@@ -8,6 +8,10 @@ final class MenuApp: NSObject, NSApplicationDelegate {
     private let productItem = NSMenuItem(title: "{hatori} v__APP_VERSION__", action: nil, keyEquivalent: "")
     private let healthItem = NSMenuItem(title: "Health: checking...", action: nil, keyEquivalent: "")
     private let detailItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let runtimeItem = NSMenuItem(title: "Runtimes: ...", action: nil, keyEquivalent: "")
+    private let writerItem = NSMenuItem(title: "Writer: ...", action: nil, keyEquivalent: "")
+    private let drafterItem = NSMenuItem(title: "Drafter: ...", action: nil, keyEquivalent: "")
+    private let judgeItem = NSMenuItem(title: "Judge: ...", action: nil, keyEquivalent: "")
     private var timer: Timer?
     private let repoRoot = "__REPO_ROOT__"
     private var iconFont: NSFont?
@@ -21,10 +25,18 @@ final class MenuApp: NSObject, NSApplicationDelegate {
         productItem.isEnabled = false
         healthItem.isEnabled = false
         detailItem.isEnabled = false
+        runtimeItem.isEnabled = false
+        writerItem.isEnabled = false
+        drafterItem.isEnabled = false
+        judgeItem.isEnabled = false
 
         menu.addItem(productItem)
         menu.addItem(healthItem)
         menu.addItem(detailItem)
+        menu.addItem(runtimeItem)
+        menu.addItem(writerItem)
+        menu.addItem(drafterItem)
+        menu.addItem(judgeItem)
         menu.addItem(NSMenuItem.separator())
 
         menu.addItem(item("Open UI /chat", #selector(openUI)))
@@ -100,6 +112,29 @@ final class MenuApp: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func boolState(_ value: Any?) -> String {
+        guard let ok = value as? Bool else { return "unknown" }
+        return ok ? "up" : "down"
+    }
+
+    private func modelLaneTitle(_ lane: String, data: [String: Any]?) -> String {
+        guard let data else { return "\(lane): unknown" }
+        let backend = (data["backend"] as? String) ?? "none"
+        let model = (data["model"] as? String) ?? ""
+        let fallback = (data["fallback_used"] as? Bool) == true ? " (fallback)" : ""
+        let ok = (data["ok"] as? Bool) == true
+        let state = ok ? "ok" : "down"
+        if model.isEmpty {
+            return "\(lane): \(backend) [\(state)]\(fallback)"
+        }
+        return "\(lane): \(backend)/\(model) [\(state)]\(fallback)"
+    }
+
+    private func trunc(_ value: String, limit: Int = 80) -> String {
+        if value.count <= limit { return value }
+        return String(value.prefix(limit - 1)) + "…"
+    }
+
     @objc private func refreshHealth() {
         guard let url = URL(string: "http://127.0.0.1:\(apiPort)/v1/health") else { return }
         let task = URLSession.shared.dataTask(with: url) { data, response, _ in
@@ -112,15 +147,32 @@ final class MenuApp: NSObject, NSApplicationDelegate {
                 else {
                     self.updateIconColor(isUp: false)
                     self.healthItem.title = "Health: API down"
-                    self.detailItem.title = "UI: http://127.0.0.1:\(self.uiPort)/chat"
+                    self.detailItem.title = "DB: unknown  API: \(self.apiPort)"
+                    self.runtimeItem.title = "Runtimes: MLX down, Ollama down"
+                    self.writerItem.title = "Writer: unavailable"
+                    self.drafterItem.title = "Drafter: unavailable"
+                    self.judgeItem.title = "Judge: unavailable"
                     return
                 }
 
                 let db = (obj["db"] as? String) ?? "unknown"
                 let model = (obj["model"] as? String) ?? "unknown"
+                let modelName = (obj["model_name"] as? String) ?? ""
+                let runtime = (obj["runtime_status"] as? [String: Any]) ?? [:]
+                let mlx = (runtime["mlx"] as? [String: Any]) ?? [:]
+                let ollama = (runtime["ollama"] as? [String: Any]) ?? [:]
+                let routing = (obj["task_model_routing"] as? [String: Any]) ?? [:]
+                let writer = routing["writer"] as? [String: Any]
+                let drafter = routing["drafter"] as? [String: Any]
+                let judge = routing["judge"] as? [String: Any]
+
                 self.updateIconColor(isUp: true)
                 self.healthItem.title = "Health: API up"
-                self.detailItem.title = "DB: \(db)  Model: \(model)"
+                self.detailItem.title = self.trunc("DB: \(db)  Primary: \(model)\(modelName.isEmpty ? "" : "/\(modelName)")")
+                self.runtimeItem.title = self.trunc("Runtimes: MLX \(self.boolState(mlx["ok"])), Ollama \(self.boolState(ollama["ok"]))")
+                self.writerItem.title = self.trunc(self.modelLaneTitle("Writer", data: writer))
+                self.drafterItem.title = self.trunc(self.modelLaneTitle("Drafter", data: drafter))
+                self.judgeItem.title = self.trunc(self.modelLaneTitle("Judge", data: judge))
             }
         }
         task.resume()

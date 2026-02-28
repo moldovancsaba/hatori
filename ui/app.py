@@ -756,14 +756,14 @@ def clean_chat_preview(text: str) -> str:
     return out[:100] + ("..." if len(out) > 100 else "")
 
 
-def render_chat_default_output(
+def get_structured_reply(
     answer: str,
     language_code: str,
     user_text: str,
     sources: list[str] | None = None,
     assumptions_override: list[str] | None = None,
     next_actions_override: list[str] | None = None,
-) -> str:
+) -> dict[str, Any]:
     planning = is_daily_planning_request(user_text)
     source_lines = [s for s in (sources or []) if s.strip()]
     if planning and language_code == "hu":
@@ -808,20 +808,49 @@ def render_chat_default_output(
     if next_actions_override:
         next_actions = [x for x in next_actions_override if str(x).strip()]
     answer_clean = (answer or "").strip()
-    if not planning:
-        return answer_clean
 
-    assumptions_text = "\n".join(f"- {x}" for x in assumptions)
-    actions_text = "\n".join(next_actions)
+    return {
+        "answer": answer_clean,
+        "language_code": language_code,
+        "assumptions": assumptions,
+        "next_actions": next_actions,
+        "sources": source_lines,
+        "planning": planning,
+        "connectivity_state": "OFFLINE"
+    }
+
+
+def render_chat_default_output(
+    answer: str,
+    language_code: str,
+    user_text: str,
+    sources: list[str] | None = None,
+    assumptions_override: list[str] | None = None,
+    next_actions_override: list[str] | None = None,
+) -> str:
+    struct = get_structured_reply(
+        answer=answer,
+        language_code=language_code,
+        user_text=user_text,
+        sources=sources,
+        assumptions_override=assumptions_override,
+        next_actions_override=next_actions_override
+    )
+
+    if not struct["planning"]:
+        return struct["answer"]
+
+    assumptions_text = "\n".join(f"- {x}" for x in struct["assumptions"])
+    actions_text = "\n".join(struct["next_actions"])
     if language_code == "hu":
-        parts = [answer_clean]
+        parts = [struct["answer"]]
         if assumptions_text:
             parts.append(f"Feltételezések:\n{assumptions_text}")
         if actions_text:
             parts.append(f"Következő lépések:\n{actions_text}")
         return "\n\n".join([p for p in parts if p.strip()])
 
-    parts = [answer_clean]
+    parts = [struct["answer"]]
     if assumptions_text:
         parts.append(f"Assumptions:\n{assumptions_text}")
     if actions_text:
