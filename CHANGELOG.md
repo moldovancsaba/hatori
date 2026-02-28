@@ -2,6 +2,13 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.2] - 2026-02-28
+
+### Changed
+- Menu bar app source remains fully tracked in repository under `tools/macos/HatoriMenu/` (no core menu logic left only in compiled app artifacts).
+- Menu dropdown now shows product + version header (`{hatori} v<version>`).
+- Menu app installer now injects version from repository `VERSION` into both runtime menu text and app `Info.plist` (`CFBundleShortVersionString`).
+
 ## [0.7.1] - 2026-02-28
 
 ### Changed

@@ -5,6 +5,7 @@ import CoreText
 final class MenuApp: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
+    private let productItem = NSMenuItem(title: "{hatori} v__APP_VERSION__", action: nil, keyEquivalent: "")
     private let healthItem = NSMenuItem(title: "Health: checking...", action: nil, keyEquivalent: "")
     private let detailItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
     private var timer: Timer?
@@ -17,9 +18,11 @@ final class MenuApp: NSObject, NSApplicationDelegate {
         loadPortsFromEnv()
         configureMenuBarIcon()
 
+        productItem.isEnabled = false
         healthItem.isEnabled = false
         detailItem.isEnabled = false
 
+        menu.addItem(productItem)
         menu.addItem(healthItem)
         menu.addItem(detailItem)
         menu.addItem(NSMenuItem.separator())
