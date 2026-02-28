@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-APP_NAME="HatoriMenu"
+APP_NAME="hatori-toolbar"
 APP_DIR="$HOME/Applications/${APP_NAME}.app"
 BIN_DIR="$APP_DIR/Contents/MacOS"
 RES_DIR="$APP_DIR/Contents/Resources"
@@ -26,7 +26,7 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key>
   <string>${APP_NAME}</string>
   <key>CFBundleIdentifier</key>
-  <string>com.hatori.menubar</string>
+  <string>com.hatori.toolbar</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

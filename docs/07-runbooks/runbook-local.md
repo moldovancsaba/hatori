@@ -23,7 +23,7 @@ make run-menubar-app
 ```
 
 Installed app location:
-- `~/Applications/HatoriMenu.app`
+- `~/Applications/hatori-toolbar.app`
 
 Menu user guide:
 - `docs/07-runbooks/menu-user-guide.md`
@@ -31,7 +31,7 @@ Menu user guide:
 To auto-start the menu bar app on login:
 1. Open macOS `System Settings`
 2. Go to `General` -> `Login Items`
-3. Click `+` and select `~/Applications/HatoriMenu.app`
+3. Click `+` and select `~/Applications/hatori-toolbar.app`
 
 One-command foreground run (local terminal):
 

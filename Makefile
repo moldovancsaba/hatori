@@ -96,7 +96,7 @@ install-menubar-app:
 
 .PHONY: run-menubar-app
 run-menubar-app:
-	open "$$HOME/Applications/HatoriMenu.app"
+	open "$$HOME/Applications/hatori-toolbar.app"
 
 .PHONY: up
 up:

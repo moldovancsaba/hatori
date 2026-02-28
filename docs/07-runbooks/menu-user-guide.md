@@ -1,6 +1,6 @@
 # {hatori} Menu User Guide
 
-This guide explains what you can do from the macOS menu bar app (`HatoriMenu`).
+This guide explains what you can do from the macOS menu bar app (`hatori-toolbar`).
 
 ## What You See At The Top
 

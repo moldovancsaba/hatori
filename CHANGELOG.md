@@ -2,6 +2,13 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.5] - 2026-02-28
+
+### Changed
+- Renamed the macOS menu app surface from `HatoriMenu` to `hatori-toolbar` across installer output, app bundle path, runbooks, and README.
+- Updated Makefile open target and local docs to reference `~/Applications/hatori-toolbar.app`.
+- Refreshed README release metadata to current version (`v0.7.5`).
+
 ## [0.7.4] - 2026-02-28
 
 ### Added
