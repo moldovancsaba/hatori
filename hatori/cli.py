@@ -278,6 +278,25 @@ def pks_apply_patch(path_or_json: str) -> None:
 
 
 
+
+
+def latest_negative_feedback_log() -> str | None:
+    rows = psql_json(
+        "SELECT details FROM learning_events "
+        "WHERE kind='NegativeFeedback' ORDER BY occurred_at DESC LIMIT 1"
+    )
+    if not rows:
+        return None
+    details = rows[0].get("details") or {}
+    if not isinstance(details, dict):
+        details = {}
+    reason = (details.get("edit_reason") or details.get("comment") or details.get("category") or "format/style issue").strip()
+    final_text = (details.get("final_sent_text") or "").strip()
+    action = "shorten response and mirror user language/tone"
+    if final_text:
+        action = f"align to corrected target text style (sample: {final_text[:80]})"
+    return f"Recent NegativeFeedback detected. Corrective action proposal: {action}. Trigger: {reason}."
+
 def retrieve_pks(question: str, allow_pending: bool, limit: int = 8) -> list[dict]:
     statuses = ["Approved"]
     if allow_pending:
@@ -453,6 +472,10 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
             interaction_id=user_event_id,
         )
         learning_log = f"Recorded ImplicitPositive (Low) as learning event {learning_event_id}."
+    else:
+        recent_negative = latest_negative_feedback_log()
+        if recent_negative:
+            learning_log = recent_negative
 
     payload = {
         "connectivity_state": current_connectivity,

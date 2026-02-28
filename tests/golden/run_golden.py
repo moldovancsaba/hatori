@@ -1837,6 +1837,34 @@ def test_114_pks_add_has_no_silent_overwrite_path() -> None:
     after = int(db_scalar("SELECT count(*) FROM pks_records WHERE module='A' AND title='No overwrite marker';"))
     assert_true(out1 != out2, "pks add must create a new id each time")
     assert_true(after == before + 2, "pks add must append records; no silent overwrite")
+
+
+def test_115_cli_negative_feedback_creates_learning_event() -> None:
+    before = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    run_cli(["feedback", "NegativeFeedback", "High", json.dumps({"category": "format", "comment": "too formal"}, ensure_ascii=False)])
+    after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='NegativeFeedback';"))
+    assert_true(after == before + 1, "CLI feedback should create NegativeFeedback learning_event")
+
+
+def test_116_ask_learning_log_mentions_recent_negative_feedback() -> None:
+    run_cli(
+        [
+            "feedback",
+            "NegativeFeedback",
+            "High",
+            json.dumps(
+                {
+                    "edit_reason": "too long",
+                    "final_sent_text": "Szia! Röviden: holnap 10:00 megfelel?",
+                },
+                ensure_ascii=False,
+            ),
+        ]
+    )
+    out = run_cli_json(["ask", "Adj rövid választ erre.", "--json"])
+    ll = out.get("learning_log", "")
+    assert_true("NegativeFeedback" in ll, "learning_log should reference recent NegativeFeedback")
+    assert_true("Corrective action proposal" in ll, "learning_log should include corrective action proposal")
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1951,6 +1979,8 @@ def collect_tests() -> list:
         test_112_pks_contest_sets_contested_and_stores_reason,
         test_113_pks_contest_requires_reason_json,
         test_114_pks_add_has_no_silent_overwrite_path,
+        test_115_cli_negative_feedback_creates_learning_event,
+        test_116_ask_learning_log_mentions_recent_negative_feedback,
     ]
 
 
