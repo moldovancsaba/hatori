@@ -1,3 +1,5 @@
+> Planning SSOT: active tasks are tracked only on https://github.com/users/moldovancsaba/projects/1 (Product `{hatori}`).
+
 # Braindump: Next Agent Continuation
 
 Last updated: 2026-02-27
@@ -38,7 +40,7 @@ Last updated: 2026-02-27
 
 ## Known caveats to improve next
 - API `respond` content quality can still be generic/awkward in some Hungarian responses when running with `HATORI_MODEL=none`.
-- API and UI share logic through `ui.app` helpers. This is intentional for speed, but future refactor should extract shared runtime helpers into a dedicated module (`hatori/runtime.py`) to avoid coupling UI and API layers.
+- API and UI share logic through `ui.app` helpers. This is intentional for speed, but historical note: UI and API currently share helpers via `ui.app`.
 
 ## Next-agent prompt (copy/paste)
 You are a developer agent working on repo:

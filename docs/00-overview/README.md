@@ -41,11 +41,11 @@ Build a long-lived personal agent ("Hatori") that:
 - `python -m hatori.cli consistency-check --subset 8`
 
 ## POC loop (Sprint 04 chat + upload)
-- Start UI: `PORT=8093 make run-ui-hatori`
+- Start UI: `PORT=23571 make run-ui-hatori`
 - Open local routes:
-  - `http://127.0.0.1:8093/chat`
-  - `http://127.0.0.1:8093/upload`
-  - `http://127.0.0.1:8093/search`
+  - `http://127.0.0.1:23571/chat`
+  - `http://127.0.0.1:23571/upload`
+  - `http://127.0.0.1:23571/search`
 - Chat flow:
   - send message in `/chat`
   - assistant reply is logged in `interaction_events` with `related_user_interaction_id`
@@ -118,13 +118,21 @@ Build a long-lived personal agent ("Hatori") that:
   - process-local breaker skips repeatedly failing backends for cooldown windows.
   - machine-readable breaker state is exposed in `/v1/health`.
 
-## Planning
-- Roadmap: docs/11-roadmap/roadmap.md
-- Backlog: docs/11-roadmap/backlog.md
-- Sprint 01: docs/11-roadmap/sprint-01.md
+## Planning (SSOT)
+Planning is managed only on GitHub Project board:
+- https://github.com/users/moldovancsaba/projects/1
+
+Issue repository for product work:
+- https://github.com/moldovancsaba/mvp-factory-control/issues
+
+Use board filters:
+- `Product = {hatori}`
+- Status lanes (`IDEA BANK`, `Roadmap`, `Backlog`, `Ready`, `In Progress`, `Review`, `Blocked`, `Done`)
+
+Local `docs/11-roadmap/*` files are archived pointers only.
 
 ## Release
-- Current stable release: `v0.5.0`
+- Current stable release: `v0.6.0`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
 
 ## Prompt Pack

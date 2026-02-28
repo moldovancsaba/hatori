@@ -2,6 +2,13 @@
 
 All notable changes to this project are tracked here.
 
+## [0.6.1] - 2026-02-28
+
+### Changed
+- Enforced planning SSOT policy in docs: active roadmap/backlog/sprint execution now lives only in GitHub Project board (`moldovancsaba/projects/1`, product `{hatori}`).
+- Converted `docs/11-roadmap/*` files to archived pointers (no active task queues kept in-repo).
+- Updated overview and handoff docs to reference board-based planning flow only.
+
 ## [0.6.0] - 2026-02-27
 
 ### Added
