@@ -2,6 +2,21 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.4] - 2026-02-28
+
+### Added
+- New end-user menu guide with segmented usage levels:
+  - `docs/07-runbooks/menu-user-guide.md`
+  - explicit `--- Basics ---` and `--- Advanced ---` usage paths.
+
+### Changed
+- Menu dropdown now includes visible section separators:
+  - `--- Basics ---`
+  - `--- Advanced ---`
+- Functions are grouped by intent:
+  - Basics: chat/upload/search, API health, smoke test
+  - Advanced: interactions/learning inspection + service operations/logs
+
 ## [0.7.3] - 2026-02-28
 
 ### Added

@@ -12,6 +12,8 @@ final class MenuApp: NSObject, NSApplicationDelegate {
     private let writerItem = NSMenuItem(title: "Writer: ...", action: nil, keyEquivalent: "")
     private let drafterItem = NSMenuItem(title: "Drafter: ...", action: nil, keyEquivalent: "")
     private let judgeItem = NSMenuItem(title: "Judge: ...", action: nil, keyEquivalent: "")
+    private let basicsHeaderItem = NSMenuItem(title: "--- Basics ---", action: nil, keyEquivalent: "")
+    private let advancedHeaderItem = NSMenuItem(title: "--- Advanced ---", action: nil, keyEquivalent: "")
     private var timer: Timer?
     private let repoRoot = "__REPO_ROOT__"
     private var iconFont: NSFont?
@@ -29,6 +31,8 @@ final class MenuApp: NSObject, NSApplicationDelegate {
         writerItem.isEnabled = false
         drafterItem.isEnabled = false
         judgeItem.isEnabled = false
+        basicsHeaderItem.isEnabled = false
+        advancedHeaderItem.isEnabled = false
 
         menu.addItem(productItem)
         menu.addItem(healthItem)
@@ -38,15 +42,17 @@ final class MenuApp: NSObject, NSApplicationDelegate {
         menu.addItem(drafterItem)
         menu.addItem(judgeItem)
         menu.addItem(NSMenuItem.separator())
-
+        menu.addItem(basicsHeaderItem)
         menu.addItem(item("Open UI /chat", #selector(openUI)))
         menu.addItem(item("Open UI /upload", #selector(openUIUpload)))
         menu.addItem(item("Open UI /search", #selector(openUISearch)))
-        menu.addItem(item("Open UI /interactions", #selector(openUIInteractions)))
-        menu.addItem(item("Open UI /learning", #selector(openUILearning)))
         menu.addItem(item("Open API Health", #selector(openAPIHealth)))
         menu.addItem(item("Reply Smoke", #selector(runReplySmoke)))
+
         menu.addItem(NSMenuItem.separator())
+        menu.addItem(advancedHeaderItem)
+        menu.addItem(item("Open UI /interactions", #selector(openUIInteractions)))
+        menu.addItem(item("Open UI /learning", #selector(openUILearning)))
         menu.addItem(item("Restart Service", #selector(restartService)))
         menu.addItem(item("Stop Service", #selector(stopService)))
         menu.addItem(item("Start/Install Service", #selector(installService)))
