@@ -1802,6 +1802,41 @@ def test_111_pks_apply_patch_creates_records_and_audit() -> None:
     )
     assert_true(int(b_audit) >= 1, "apply-patch must write audit create event for B")
     assert_true(int(h_audit) >= 1, "apply-patch must write audit create event for H")
+
+
+def test_112_pks_contest_sets_contested_and_stores_reason() -> None:
+    proc = run_cli(["pks", "add", "A", "Contest target", "A2-CONTEST-BODY", "--status", "Approved"])
+    rid = proc.stdout.strip()
+    reason = {"type": "conflict", "note": "new evidence contradicts prior claim"}
+    run_cli(["pks", "contest", rid, json.dumps(reason, ensure_ascii=False)])
+
+    status = db_scalar(f"SELECT status FROM pks_records WHERE id='{rid}' LIMIT 1;")
+    assert_true(status == "Contested", "pks contest must set status=Contested")
+
+    audit_reason = db_scalar(
+        "SELECT details->>'reason' FROM audit_events "
+        f"WHERE actor='cli' AND action='contest' AND target_type='pks_record' AND target_id='{rid}' "
+        "ORDER BY occurred_at DESC LIMIT 1;"
+    )
+    parsed = json.loads(audit_reason)
+    assert_true(parsed.get("type") == "conflict", "contest audit must include rationale type")
+    assert_true(parsed.get("note") == "new evidence contradicts prior claim", "contest audit must include rationale note")
+
+
+def test_113_pks_contest_requires_reason_json() -> None:
+    proc = run_cli(["pks", "add", "A", "Contest reason required", "A2-CONTEST-REASON", "--status", "Approved"])
+    rid = proc.stdout.strip()
+    bad = run_cli(["pks", "contest", rid, "not-json"], expect_ok=False)
+    assert_true(bad.returncode != 0, "contest should fail when reason_json is invalid")
+
+
+def test_114_pks_add_has_no_silent_overwrite_path() -> None:
+    before = int(db_scalar("SELECT count(*) FROM pks_records WHERE module='A' AND title='No overwrite marker';"))
+    out1 = run_cli(["pks", "add", "A", "No overwrite marker", "A2-NO-OVERWRITE-1", "--status", "Approved"]).stdout.strip()
+    out2 = run_cli(["pks", "add", "A", "No overwrite marker", "A2-NO-OVERWRITE-2", "--status", "Approved"]).stdout.strip()
+    after = int(db_scalar("SELECT count(*) FROM pks_records WHERE module='A' AND title='No overwrite marker';"))
+    assert_true(out1 != out2, "pks add must create a new id each time")
+    assert_true(after == before + 2, "pks add must append records; no silent overwrite")
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1913,6 +1948,9 @@ def collect_tests() -> list:
         test_109_ask_explicit_memory_patch_returns_structured_json,
         test_110_ask_explicit_memory_patch_does_not_auto_write_records,
         test_111_pks_apply_patch_creates_records_and_audit,
+        test_112_pks_contest_sets_contested_and_stores_reason,
+        test_113_pks_contest_requires_reason_json,
+        test_114_pks_add_has_no_silent_overwrite_path,
     ]
 
 
