@@ -1729,6 +1729,79 @@ def test_108_ui_approve_deprecate_create_audit_events() -> None:
     assert_true(int(a1) == 1, "approve audit event missing")
     assert_true(int(a2) == 1, "deprecate audit event missing")
 
+
+
+def test_109_ask_explicit_memory_patch_returns_structured_json() -> None:
+    out = run_cli_json(
+        [
+            "ask",
+            "Memory Patch: module B; title=Reply tone preference; body=Keep replies concise and polite.",
+            "--json",
+        ]
+    )
+    raw = out.get("memory_patch")
+    assert_true(isinstance(raw, str) and raw.strip() != "", "memory_patch must be non-empty text")
+    patch = json.loads(raw)
+    assert_true(patch.get("schema") == "hatori.memory_patch.v1", "memory_patch schema mismatch")
+    assert_true(patch.get("mode") == "proposed", "memory_patch mode must be proposed")
+    records = patch.get("records", [])
+    assert_true(isinstance(records, list) and len(records) == 1, "memory_patch must contain one record")
+    rec = records[0]
+    assert_true(rec.get("module") == "B", "memory_patch module mismatch")
+    assert_true(rec.get("title") == "Reply tone preference", "memory_patch title mismatch")
+    assert_true(rec.get("body") == "Keep replies concise and polite.", "memory_patch body mismatch")
+    assert_true(rec.get("status") == "Pending", "module B proposed status should be Pending")
+
+
+def test_110_ask_explicit_memory_patch_does_not_auto_write_records() -> None:
+    before = int(db_scalar("SELECT count(*) FROM pks_records WHERE title='Do not auto write';"))
+    run_cli_json(
+        [
+            "ask",
+            "Memory Patch: module B; title=Do not auto write; body=This should remain proposal only.",
+            "--json",
+        ]
+    )
+    after = int(db_scalar("SELECT count(*) FROM pks_records WHERE title='Do not auto write';"))
+    assert_true(after == before, "ask memory patch proposal must not write PKS records")
+
+
+def test_111_pks_apply_patch_creates_records_and_audit() -> None:
+    payload = {
+        "schema": "hatori.memory_patch.v1",
+        "mode": "proposed",
+        "records": [
+            {
+                "module": "B",
+                "title": "Patch apply B",
+                "body": "A3 apply path should create pending B",
+                "status": "Pending",
+            },
+            {
+                "module": "H",
+                "title": "Patch apply H",
+                "body": "A3 apply path should create approved H",
+                "status": "Approved",
+            },
+        ],
+    }
+    run_cli(["pks", "apply-patch", json.dumps(payload, ensure_ascii=False)])
+
+    b_status = db_scalar("SELECT status FROM pks_records WHERE title='Patch apply B' ORDER BY created_at DESC LIMIT 1;")
+    h_status = db_scalar("SELECT status FROM pks_records WHERE title='Patch apply H' ORDER BY created_at DESC LIMIT 1;")
+    assert_true(b_status == "Pending", "apply-patch must create Pending status for B record")
+    assert_true(h_status == "Approved", "apply-patch must create Approved status for H record")
+
+    b_audit = db_scalar(
+        "SELECT count(*) FROM audit_events WHERE actor='cli' AND action='create' AND target_type='pks_record' "
+        "AND details->>'module'='B' AND details->>'status'='Pending';"
+    )
+    h_audit = db_scalar(
+        "SELECT count(*) FROM audit_events WHERE actor='cli' AND action='create' AND target_type='pks_record' "
+        "AND details->>'module'='H' AND details->>'status'='Approved';"
+    )
+    assert_true(int(b_audit) >= 1, "apply-patch must write audit create event for B")
+    assert_true(int(h_audit) >= 1, "apply-patch must write audit create event for H")
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1837,6 +1910,9 @@ def collect_tests() -> list:
         test_106_pks_add_defaults_approved_for_non_bdf,
         test_107_pks_pending_page_renders,
         test_108_ui_approve_deprecate_create_audit_events,
+        test_109_ask_explicit_memory_patch_returns_structured_json,
+        test_110_ask_explicit_memory_patch_does_not_auto_write_records,
+        test_111_pks_apply_patch_creates_records_and_audit,
     ]
 
 

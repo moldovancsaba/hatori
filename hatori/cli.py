@@ -200,6 +200,83 @@ def classify_request(question: str) -> str:
         return "System upkeep"
     return "Daily task"
 
+def build_memory_patch_from_question(question: str) -> str:
+    """Generate a structured Memory Patch proposal for explicit A-H write intents.
+
+    Supported input shape (strict, deterministic):
+    "Memory Patch: module B; title=<title>; body=<body>"
+    """
+    m = re.match(
+        r"(?is)^\s*memory\s*patch\s*:\s*module\s*([A-H])\s*;\s*title\s*=\s*(.+?)\s*;\s*body\s*=\s*(.+?)\s*$",
+        question.strip(),
+    )
+    if not m:
+        return "No memory changes."
+
+    module = m.group(1).upper().strip()
+    title = m.group(2).strip()
+    body = m.group(3).strip()
+    status = default_status_for_module(module)
+
+    patch = {
+        "schema": "hatori.memory_patch.v1",
+        "mode": "proposed",
+        "records": [
+            {
+                "module": module,
+                "title": title,
+                "body": body,
+                "status": status,
+                "provenance": "User",
+                "confidence": "High",
+                "scope": "Personal",
+            }
+        ],
+        "apply_via": [
+            "hatori pks apply-patch <json_file>",
+            "or create Pending in UI then approve/deprecate via /pks/pending",
+        ],
+    }
+    return json.dumps(patch, ensure_ascii=False, indent=2)
+
+
+def pks_apply_patch(path_or_json: str) -> None:
+    raw = ""
+    path = Path(path_or_json).expanduser()
+    if path.exists():
+        raw = path.read_text(encoding="utf-8")
+    else:
+        raw = path_or_json
+
+    try:
+        payload = json.loads(raw)
+    except Exception as exc:
+        raise SystemExit(f"Invalid memory patch JSON: {exc}")
+
+    if not isinstance(payload, dict):
+        raise SystemExit("Memory patch must be a JSON object")
+    records = payload.get("records")
+    if not isinstance(records, list) or not records:
+        raise SystemExit("Memory patch requires non-empty records[]")
+
+    applied = 0
+    for rec in records:
+        if not isinstance(rec, dict):
+            raise SystemExit("Each record in records[] must be an object")
+        module = str(rec.get("module", "")).upper().strip()
+        if module not in set("ABCDEFGH"):
+            raise SystemExit(f"module must be A..H for memory patch apply, got: {module}")
+        title = str(rec.get("title", "")).strip()
+        body = str(rec.get("body", "")).strip()
+        if not title or not body:
+            raise SystemExit("Each memory patch record requires title and body")
+        status = str(rec.get("status", "")).strip() or None
+        pks_add(module, title, body, status)
+        applied += 1
+
+    print(f"Applied {applied} memory patch record(s).")
+
+
 
 def retrieve_pks(question: str, allow_pending: bool, limit: int = 8) -> list[dict]:
     statuses = ["Approved"]
@@ -358,7 +435,7 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
             "Re-run hatori ask after local evidence exists.",
         ]
 
-    memory_patch = "No memory changes."
+    memory_patch = build_memory_patch_from_question(question)
 
     user_event_id = insert_interaction(
         role="user",
@@ -703,7 +780,7 @@ def main(argv: list[str]) -> None:
 
     if cmd == "pks":
         if len(argv) < 3:
-            raise SystemExit("Usage: hatori pks <add|list|show|approve|deprecate|contest> ...")
+            raise SystemExit("Usage: hatori pks <add|list|show|approve|deprecate|contest|apply-patch> ...")
         sub = argv[2]
         if sub == "add":
             if len(argv) < 6:
@@ -761,6 +838,12 @@ def main(argv: list[str]) -> None:
             if len(argv) < 5:
                 raise SystemExit("Usage: hatori pks contest <uuid> <reason_json>")
             pks_set_status(argv[3], "Contested", json.loads(argv[4]))
+            return
+
+        if sub == "apply-patch":
+            if len(argv) < 4:
+                raise SystemExit("Usage: hatori pks apply-patch <json_file_or_json_string>")
+            pks_apply_patch(argv[3])
             return
 
         raise SystemExit("Unknown pks subcommand: " + sub)
