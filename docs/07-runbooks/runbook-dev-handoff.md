@@ -1,3 +1,5 @@
+> Planning SSOT: active roadmap/backlog/sprint items live only on https://github.com/users/moldovancsaba/projects/1 (Product `{hatori}`).
+
 # Developer Handoff Runbook
 
 This runbook is for onboarding a developer/developer-agent to the {hatori} repo.

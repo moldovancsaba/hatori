@@ -117,13 +117,49 @@ Build a long-lived personal agent ("{hatori}") that:
   - optional: `export HATORI_LLAMA_THREADS=4`
   - smoke test: `python -m hatori.cli model-smoke "Respond with one short line"`
 
-## Planning
-- Roadmap: docs/11-roadmap/roadmap.md
-- Backlog: docs/11-roadmap/backlog.md
-- Sprint 01: docs/11-roadmap/sprint-01.md
+## Planning (SSOT)
+Planning is managed only on GitHub Project board:
+- https://github.com/users/moldovancsaba/projects/1
+
+Issue repository for product work:
+- https://github.com/moldovancsaba/mvp-factory-control/issues
+
+Use board filters:
+- `Product = {hatori}`
+- Status lanes (`IDEA BANK`, `Roadmap`, `Backlog`, `Ready`, `In Progress`, `Review`, `Blocked`, `Done`)
+
+Local `docs/11-roadmap/*` files are archived pointers only.
 
 ## Release
-- Current stable release: `v0.7.0`
+- Current stable release: `v0.7.1`
+## Model Gateway (generator routing)
+- Internal gateway module: `hatori/model_gateway.py`
+- Stable interface:
+  - `generate(prompt, opts) -> GatewayResult`
+  - `embed(texts, opts) -> EmbeddingResult`
+- Generator order:
+  - default `HATORI_GENERATOR_ORDER=mlx,ollama`
+  - MLX preferred when available and configured (`HATORI_MLX_MODEL`)
+  - automatic fallback to Ollama on MLX errors
+- Circuit breaker:
+  - process-local breaker skips repeatedly failing backends for cooldown windows.
+  - machine-readable breaker state is exposed in `/v1/health`.
+
+## Planning (SSOT)
+Planning is managed only on GitHub Project board:
+- https://github.com/users/moldovancsaba/projects/1
+
+Issue repository for product work:
+- https://github.com/moldovancsaba/mvp-factory-control/issues
+
+Use board filters:
+- `Product = {hatori}`
+- Status lanes (`IDEA BANK`, `Roadmap`, `Backlog`, `Ready`, `In Progress`, `Review`, `Blocked`, `Done`)
+
+Local `docs/11-roadmap/*` files are archived pointers only.
+
+## Release
+- Current stable release: `v0.7.1`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
 
 ## API Contract

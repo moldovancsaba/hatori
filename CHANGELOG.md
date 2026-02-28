@@ -2,6 +2,13 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.1] - 2026-02-28
+
+### Changed
+- Enforced planning SSOT policy in docs: active roadmap/backlog/sprint execution now lives only in GitHub Project board (`moldovancsaba/projects/1`, product `{hatori}`).
+- Converted `docs/11-roadmap/*` files to archived pointers (no active task queues kept in-repo).
+- Updated overview and handoff docs to reference board-based planning flow only.
+
 ## [0.7.0] - 2026-02-27
 
 ### Added
@@ -23,7 +30,6 @@ All notable changes to this project are tracked here.
 
 ### Fixed
 - Stale port references in integration/client docs updated to current API port (`23572`).
-
 
 ## [0.6.0] - 2026-02-27
 
