@@ -1669,6 +1669,66 @@ def test_104_api_outcome_rejects_missing_fields_when_edited() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
+
+def test_105_pks_add_defaults_pending_for_bdf() -> None:
+    created: list[tuple[str, str]] = []
+    for module in ("B", "D", "F"):
+        proc = run_cli(["pks", "add", module, f"Default pending {module}", f"A1-PENDING-{module}"])
+        rid = proc.stdout.strip()
+        status = db_scalar(f"SELECT status FROM pks_records WHERE id='{rid}' LIMIT 1;")
+        assert_true(status == "Pending", f"module {module} must default to Pending")
+        created.append((module, rid))
+    for module, rid in created:
+        exists = db_scalar(
+            "SELECT count(*) FROM audit_events "
+            f"WHERE actor='cli' AND action='create' AND target_type='pks_record' AND target_id='{rid}' "
+            f"AND details->>'status'='Pending' AND details->>'module'='{module}';"
+        )
+        assert_true(int(exists) == 1, f"audit create event missing for module {module}")
+
+
+def test_106_pks_add_defaults_approved_for_non_bdf() -> None:
+    proc = run_cli(["pks", "add", "A", "Default approved A", "A1-APPROVED-A"])
+    rid = proc.stdout.strip()
+    status = db_scalar(f"SELECT status FROM pks_records WHERE id='{rid}' LIMIT 1;")
+    assert_true(status == "Approved", "module A must default to Approved")
+
+
+def test_107_pks_pending_page_renders() -> None:
+    upsert_pending_record("B", "Pending queue marker", "A1-PENDING-QUEUE")
+    with ui_client() as client:
+        resp = client.get("/pks/pending")
+        assert_true(resp.status_code == 200, "GET /pks/pending should return 200")
+        body = resp.text
+        assert_true("PKS Pending" in body, "Pending page heading missing")
+        assert_true("Approve" in body and "Deprecate" in body, "Pending page actions missing")
+
+
+def test_108_ui_approve_deprecate_create_audit_events() -> None:
+    rid_approve = upsert_pending_record("B", "Approve audit marker", "A1-APPROVE-AUDIT")
+    rid_deprecate = upsert_pending_record("D", "Deprecate audit marker", "A1-DEPRECATE-AUDIT")
+    with ui_client() as client:
+        r1 = client.post("/pks/approve", data={"id": rid_approve, "reason": "a1-approve"}, follow_redirects=False)
+        r2 = client.post("/pks/deprecate", data={"id": rid_deprecate, "reason": "a1-deprecate"}, follow_redirects=False)
+        assert_true(r1.status_code == 303, "POST /pks/approve should redirect")
+        assert_true(r2.status_code == 303, "POST /pks/deprecate should redirect")
+    s1 = db_scalar(f"SELECT status FROM pks_records WHERE id='{rid_approve}' LIMIT 1;")
+    s2 = db_scalar(f"SELECT status FROM pks_records WHERE id='{rid_deprecate}' LIMIT 1;")
+    assert_true(s1 == "Approved", "approve action must set Approved")
+    assert_true(s2 == "Deprecated", "deprecate action must set Deprecated")
+    a1 = db_scalar(
+        "SELECT count(*) FROM audit_events "
+        f"WHERE actor='ui' AND action='approve' AND target_type='pks_record' AND target_id='{rid_approve}' "
+        "AND details->>'status'='Approved' AND details->>'reason'='a1-approve';"
+    )
+    a2 = db_scalar(
+        "SELECT count(*) FROM audit_events "
+        f"WHERE actor='ui' AND action='deprecate' AND target_type='pks_record' AND target_id='{rid_deprecate}' "
+        "AND details->>'status'='Deprecated' AND details->>'reason'='a1-deprecate';"
+    )
+    assert_true(int(a1) == 1, "approve audit event missing")
+    assert_true(int(a2) == 1, "deprecate audit event missing")
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1773,6 +1833,10 @@ def collect_tests() -> list:
         test_102_api_outcome_idempotency_blocks_duplicates,
         test_103_api_outcome_requires_token_401,
         test_104_api_outcome_rejects_missing_fields_when_edited,
+        test_105_pks_add_defaults_pending_for_bdf,
+        test_106_pks_add_defaults_approved_for_non_bdf,
+        test_107_pks_pending_page_renders,
+        test_108_ui_approve_deprecate_create_audit_events,
     ]
 
 
