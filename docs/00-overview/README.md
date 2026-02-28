@@ -142,3 +142,10 @@ Local `docs/11-roadmap/*` files are archived pointers only.
 - Task prompt template: docs/09-prompts/task-prompt-template.md
 - Memory patch format: docs/09-prompts/memory-patch-format.md
 - UI runbook: docs/07-runbooks/runbook-ui.md
+
+## Learning Signal Policy
+
+- `done`/"no complaint" events are logged as `ImplicitPositive` with `Low` confidence only.
+- `NegativeFeedback` from UI/API is treated as high-priority corrective signal.
+- Promotion from repeated positive signals is gated: require at least **5 similar signals within 7 days** before proposing a PKS promotion (Pending first, never auto-approve).
+

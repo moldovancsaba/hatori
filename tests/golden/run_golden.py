@@ -176,6 +176,9 @@ def test_06_done_signal_learning() -> None:
     after = int(db_scalar("SELECT count(*) FROM learning_events WHERE kind='ImplicitPositive';"))
     assert_true(after == before + 1, "--done should log one ImplicitPositive event")
     assert_true("ImplicitPositive" in out["learning_log"], "Learning log should mention ImplicitPositive")
+    lid = out.get("learning_event_id")
+    conf = db_scalar(f"SELECT confidence FROM learning_events WHERE id='{lid}' LIMIT 1;")
+    assert_true(conf == "Low", "ImplicitPositive must be stored with Low confidence")
 
 
 def test_07_ingest_creates_artefact() -> None:
