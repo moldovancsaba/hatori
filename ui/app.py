@@ -419,7 +419,8 @@ def _needs_repair(raw: str, cleaned: str, removed_ratio: float) -> bool:
         return True
     if removed_ratio > 0.30:
         return True
-    return len(cleaned.strip()) < 48
+    # Lowered threshold from 48 to 10 to allow short conversational replies
+    return len(cleaned.strip()) < 10
 
 
 def _looks_hungarian(text: str) -> bool:
@@ -431,9 +432,14 @@ def _looks_hungarian(text: str) -> bool:
 
 
 def _repair_assistant_output(model, language_code: str, user_text: str, leaked_text: str) -> str:
+    # If the request is short (likely a chat draft), use a less prescriptive prompt
+    is_chat = len(user_text) < 200 or "kérlek" not in user_text.lower()
+    
+    template_instruction = "" if is_chat else "Follow the 7-section template only.\n"
+    
     strict = (
         f"Rewrite ONLY the final user-facing answer in {language_name(language_code)}.\n"
-        "Follow the 7-section template only.\n"
+        f"{template_instruction}"
         "Do not include any internal prompts, metadata, scaffolding, or code fences.\n"
         "Do not include lines like TASK PROMPT, Retrieved PKS, Required behaviour, Connectivity:, Time:, Active Project.\n"
         f"User request: {user_text}\n"
@@ -489,24 +495,28 @@ def gateway_health_status() -> dict:
 
 
 def is_daily_planning_request(text: str) -> bool:
-    lowered = text.lower()
-    markers = [
-        "daily plan",
-        "weekly plan",
-        "plan my day",
-        "planning",
-        "napi terv",
-        "napi",
-        "prioritás",
-        "prioritas",
-        "teendő",
-        "teendo",
-        "ma",
-        "heti terv",
-        "tervez",
-        "ütemez",
+    lowered = (text or "").lower().strip()
+    if not lowered:
+        return False
+
+    direct_patterns = [
+        r"\bdaily\s+plan\b",
+        r"\bweekly\s+plan\b",
+        r"\bplan\s+my\s+day\b",
+        r"\bplanning\b",
+        r"\bnapi\s+terv\w*\b",
+        r"\bheti\s+terv\w*\b",
+        r"\btervez\w*\b",
+        r"\bütemez\w*\b",
+        r"\bpriorit[aá]s\w*\b",
+        r"\bteend[oő]\w*\b",
     ]
-    return any(m in lowered for m in markers)
+    if any(re.search(pat, lowered) for pat in direct_patterns):
+        return True
+
+    has_today_marker = bool(re.search(r"\b(ma|today)\b", lowered))
+    has_task_marker = bool(re.search(r"\b(feladat\w*|tasks?|priorit(?:y|ies)|priorit[aá]s\w*)\b", lowered))
+    return has_today_marker and has_task_marker
 
 
 def is_greeting_only(text: str, language_code: str) -> bool:

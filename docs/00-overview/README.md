@@ -117,6 +117,18 @@ Build a long-lived personal agent ("Hatori") that:
 - Circuit breaker:
   - process-local breaker skips repeatedly failing backends for cooldown windows.
   - machine-readable breaker state is exposed in `/v1/health`.
+- Toolbar/runtime compatibility fields exposed in `/v1/health`:
+  - `runtime_status`
+  - `task_model_routing`
+  - `request_counts_last_minute`
+
+## Menubar Service Supervision
+- LaunchAgent service script stack:
+  - `tools/scripts/hatori_service.sh`
+  - `tools/scripts/port_owner.sh`
+  - `tools/scripts/is_hatori_pid.sh`
+- Runtime keepalive should be managed through:
+  - `launchctl kickstart -k gui/501/com.hatori`
 
 ## Planning (SSOT)
 Planning is managed only on GitHub Project board:
@@ -148,4 +160,3 @@ Local `docs/11-roadmap/*` files are archived pointers only.
 - `done`/"no complaint" events are logged as `ImplicitPositive` with `Low` confidence only.
 - `NegativeFeedback` from UI/API is treated as high-priority corrective signal.
 - Promotion from repeated positive signals is gated: require at least **5 similar signals within 7 days** before proposing a PKS promotion (Pending first, never auto-approve).
-

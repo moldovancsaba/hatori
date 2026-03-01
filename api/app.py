@@ -4,6 +4,7 @@ import ipaddress
 import uuid
 import mimetypes
 import hashlib
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,187 @@ def _model_status() -> tuple[str, str]:
     return "none", ""
 
 
+def _current_ports() -> tuple[int, int]:
+    ui_port = int((os.environ.get("UI_PORT") or "8093").strip())
+    api_port = int((os.environ.get("API_PORT") or "8094").strip())
+    return ui_port, api_port
+
+
+def _safe_int_sql(sql: str) -> int:
+    try:
+        raw = ui.psql(sql).strip()
+        return int(raw or "0")
+    except Exception:
+        return 0
+
+
+def _request_counts_last_minute() -> dict[str, int]:
+    ingest = _safe_int_sql(
+        "SELECT count(*) FROM interaction_events "
+        "WHERE COALESCE(metadata->>'source','')='reply.ingest_event' "
+        "AND occurred_at > now() - interval '1 minute';"
+    )
+    respond = _safe_int_sql(
+        "SELECT count(*) FROM interaction_events "
+        "WHERE role='assistant' "
+        "AND COALESCE(metadata->>'source','')='reply' "
+        "AND occurred_at > now() - interval '1 minute';"
+    )
+    outcome = _safe_int_sql(
+        "SELECT count(*) FROM delivery_events "
+        "WHERE occurred_at > now() - interval '1 minute';"
+    )
+    return {"ingest": ingest, "respond": respond, "outcome": outcome}
+
+
+def _ollama_known_models() -> tuple[set[str], str]:
+    base_url = (os.environ.get("HATORI_OLLAMA_URL") or "http://127.0.0.1:11434").strip().rstrip("/")
+    try:
+        req = urllib.request.Request(f"{base_url}/api/tags", headers={"Accept": "application/json"}, method="GET")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+        parsed = json.loads(raw) if raw else {}
+        names = {str(m.get("name", "")).strip() for m in parsed.get("models", []) if str(m.get("name", "")).strip()}
+        return names, ""
+    except Exception as exc:
+        return set(), str(exc)
+
+
+def _runtime_status(
+    generator_backends: dict[str, Any],
+    *,
+    known_ollama_models: set[str],
+    ollama_tags_error: str,
+) -> dict[str, dict[str, Any]]:
+    mlx_model = (os.environ.get("HATORI_MLX_MODEL") or "").strip()
+    ollama_model = (os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b").strip()
+
+    mlx_ok = bool(generator_backends.get("mlx", {}).get("available"))
+    mlx_detail = str(generator_backends.get("mlx", {}).get("detail") or "")
+    ollama_ok = bool(generator_backends.get("ollama", {}).get("available"))
+    ollama_detail = str(generator_backends.get("ollama", {}).get("detail") or "")
+
+    out = {
+        "mlx": {
+            "backend": "mlx",
+            "ok": mlx_ok,
+            "model": mlx_model,
+            "model_available": None,
+            "error": "" if mlx_ok else mlx_detail,
+        },
+        "ollama": {
+            "backend": "ollama",
+            "ok": ollama_ok,
+            "model": ollama_model,
+            "model_available": (ollama_model in known_ollama_models) if known_ollama_models else (True if ollama_ok else False),
+            "error": "" if ollama_ok else ollama_detail,
+        },
+    }
+    if ollama_ok and ollama_tags_error:
+        out["ollama"]["error"] = ollama_tags_error
+    return out
+
+
+def _route_cfg(task: str, default_backend: str, default_model: str, default_fallback_backend: str, default_fallback_model: str) -> dict[str, str]:
+    key = task.upper()
+    return {
+        "task": task.lower(),
+        "backend": (os.environ.get(f"HATORI_ROUTE_{key}_BACKEND") or default_backend).strip().lower(),
+        "model": (os.environ.get(f"HATORI_ROUTE_{key}_MODEL") or default_model).strip(),
+        "fallback_backend": (os.environ.get(f"HATORI_ROUTE_{key}_FALLBACK_BACKEND") or default_fallback_backend).strip().lower(),
+        "fallback_model": (os.environ.get(f"HATORI_ROUTE_{key}_FALLBACK_MODEL") or default_fallback_model).strip(),
+    }
+
+
+def _route_runtime_status(
+    route: dict[str, str],
+    runtime: dict[str, dict[str, Any]],
+    *,
+    known_ollama_models: set[str],
+    ollama_tags_error: str,
+) -> dict[str, Any]:
+    backend = route.get("backend", "")
+    model = route.get("model", "")
+    backend_state = runtime.get(backend or "none", {})
+    ok = bool(backend_state.get("ok", False))
+    err = str(backend_state.get("error") or "")
+    if not backend:
+        ok = False
+        err = "backend not configured"
+
+    if ok and backend == "mlx":
+        active = (os.environ.get("HATORI_MLX_MODEL") or "").strip()
+        if active and model and active != model:
+            ok = False
+            err = f"route model differs from active mlx model ({active})"
+    if ok and backend == "ollama":
+        if ollama_tags_error:
+            ok = False
+            err = ollama_tags_error
+        elif model and known_ollama_models and model not in known_ollama_models:
+            ok = False
+            err = f"model {model} not present in ollama tags"
+
+    return {
+        "task": route.get("task", ""),
+        "ok": ok,
+        "backend": backend or "none",
+        "model": model,
+        "fallback_used": False,
+        "error": err,
+        "route": route,
+    }
+
+
+def _task_model_routing(
+    runtime: dict[str, dict[str, Any]],
+    *,
+    known_ollama_models: set[str],
+    ollama_tags_error: str,
+) -> dict[str, dict[str, Any]]:
+    writer = _route_cfg(
+        task="reply_write",
+        default_backend="mlx",
+        default_model=(os.environ.get("HATORI_MLX_MODEL") or ""),
+        default_fallback_backend="ollama",
+        default_fallback_model="gemma2:2b",
+    )
+    drafter = _route_cfg(
+        task="context_pack",
+        default_backend="ollama",
+        default_model="gemma3:1b",
+        default_fallback_backend="ollama",
+        default_fallback_model="llama3.2:1b",
+    )
+    judge = _route_cfg(
+        task="answer_score",
+        default_backend="ollama",
+        default_model=(os.environ.get("HATORI_OLLAMA_MODEL") or "llama3.2:3b"),
+        default_fallback_backend="ollama",
+        default_fallback_model="gemma2:2b",
+    )
+    return {
+        "writer": _route_runtime_status(
+            writer,
+            runtime,
+            known_ollama_models=known_ollama_models,
+            ollama_tags_error=ollama_tags_error,
+        ),
+        "drafter": _route_runtime_status(
+            drafter,
+            runtime,
+            known_ollama_models=known_ollama_models,
+            ollama_tags_error=ollama_tags_error,
+        ),
+        "judge": _route_runtime_status(
+            judge,
+            runtime,
+            known_ollama_models=known_ollama_models,
+            ollama_tags_error=ollama_tags_error,
+        ),
+    }
+
+
 def _conversation_id(value: str | None) -> str:
     raw = (value or "").strip()
     return raw if raw else f"reply:{uuid.uuid4()}"
@@ -74,6 +256,7 @@ class RespondBody(BaseModel):
     mode: str = "chat"
     external_request_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+    thread_context: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class FeedbackBody(BaseModel):
@@ -272,9 +455,67 @@ def _path_allowed(path: Path) -> bool:
     return False
 
 
-def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[str, str, list[str], str, str, bool]:
+def _deterministic_reply_fallback(language_code: str, message: str) -> str:
+    lowered = (message or "").lower()
+    asks_for_draft = any(
+        marker in lowered
+        for marker in [
+            "draft",
+            "write",
+            "message",
+            "follow-up",
+            "follow up",
+            "email",
+            "reply",
+            "iras",
+            "irj",
+            "uzenet",
+            "kovetes",
+        ]
+    )
+    if language_code == "hu":
+        if asks_for_draft:
+            return (
+                "Persze. Itt egy rovid uzenetjavaslat:\n"
+                "Szia! Egy gyors kovetes: nehany napja kuldtem egy uzenetet, "
+                "es csak szeretnek roviden rakerdezni, hogy van-e frissites. "
+                "Nem surgos, amikor idod engedi, orulnek egy valasznak. Koszonom!"
+            )
+        return "Rendben, segitek. Ird meg egy mondatban, pontosan milyen valaszt szeretnel, es adok egy rovid, kuldheto szoveget."
+    if asks_for_draft:
+        return (
+            "Sure. Here is a short message you can send:\n"
+            "Hi, just following up on my previous message from a few days ago. "
+            "No rush, but I would appreciate a quick update when you have a moment. Thanks!"
+        )
+    return "Sure, I can help with that. Share the exact context in one sentence and I will provide a short send-ready draft."
+
+
+def _is_model_unavailable_text(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    markers = [
+        "local model error:",
+        "helyi modellhiba:",
+        "local model is unavailable",
+        "cannot answer right now because the local model is unavailable",
+        "nem tudok most valaszolni, mert a helyi modell nem erheto el",
+        "nem tudok most válaszolni, mert a helyi modell nem elérhető",
+    ]
+    return any(marker in lowered for marker in markers)
+
+
+def _generate_reply(message: str, conversation_id: str, user_id: str, thread_context: list[dict[str, Any]] | None = None) -> tuple[str, str, list[str], str, str, bool]:
     language_code = ui.detect_message_language(message)
-    history_turns = ui.load_chat_history_for_prompt(chat_id=conversation_id, limit=10)
+    if thread_context:
+        history_turns = []
+        for x in thread_context:
+            role = "assistant" if (x.get("role") == "me") else "user"
+            content = x.get("text") or x.get("content") or ""
+            history_turns.append({"role": role, "content": content})
+    else:
+        history_turns = ui.load_chat_history_for_prompt(chat_id=conversation_id, limit=10)
     pks_rows = ui.load_pks_context(limit=6)
     evidence_rows = ui.load_local_evidence_context(query=message, limit=5)
     source_lines = ui.build_human_sources_lines(language_code, pks_rows, evidence_rows)
@@ -390,27 +631,37 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
         "- Answer directly.\n"
     )
 
+    used_deterministic_fallback = False
     if adapter_error:
-        raw_answer = ui.localized_model_error(language_code, adapter_error)
+        raw_answer = _deterministic_reply_fallback(language_code, message)
+        used_deterministic_fallback = True
     else:
         try:
             raw_answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()
         except Exception as exc:
-            raw_answer = ui.localized_model_error(language_code, str(exc))
+            raw_answer = _deterministic_reply_fallback(language_code, message)
+            used_deterministic_fallback = True
     if not raw_answer:
-        raw_answer = ui.localized_model_error(language_code, "empty response")
+        raw_answer = _deterministic_reply_fallback(language_code, message)
+        used_deterministic_fallback = True
+    if _is_model_unavailable_text(raw_answer):
+        raw_answer = _deterministic_reply_fallback(language_code, message)
+        used_deterministic_fallback = True
 
     clean_answer, removed_ratio = ui._sanitize_with_stats(raw_answer)
-    if model is not None and ui._needs_repair(raw_answer, clean_answer, removed_ratio):
+    # Lowered threshold from 48 to 10 to allow short conversational replies
+    if model is not None and (not clean_answer or removed_ratio > 0.30 or len(clean_answer.strip()) < 10):
         try:
             clean_answer = ui._repair_assistant_output(model, language_code, message, raw_answer)
         except Exception:
-            clean_answer = ui.localized_model_error(language_code, "unsafe model output removed")
+            clean_answer = _deterministic_reply_fallback(language_code, message)
+            used_deterministic_fallback = True
     if model is not None and language_code == "hu" and not ui._looks_hungarian(clean_answer):
         try:
             clean_answer = ui._repair_assistant_output(model, language_code, message, clean_answer)
         except Exception:
-            clean_answer = "Rendszerhiba történt a válasz összeállításakor. Kérlek próbáld újra."
+            clean_answer = _deterministic_reply_fallback(language_code, message)
+            used_deterministic_fallback = True
 
     clean_answer = ui.sanitize_assistant_output(clean_answer)
     if ui._has_forbidden_user_visible_markers(clean_answer) and model is not None:
@@ -419,11 +670,8 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
         except Exception:
             pass
     if ui._has_forbidden_user_visible_markers(clean_answer):
-        clean_answer = (
-            "Rendszerhiba történt a válasz összeállításakor. Kérlek próbáld újra."
-            if language_code == "hu"
-            else "A system error occurred while assembling the response. Please retry."
-        )
+        clean_answer = _deterministic_reply_fallback(language_code, message)
+        used_deterministic_fallback = True
         ui.insert_learning(
             kind="NegativeFeedback",
             confidence="High",
@@ -436,11 +684,18 @@ def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[s
             related_interaction_id=user_id,
         )
     if not clean_answer:
-        clean_answer = ui.localized_model_error(language_code, "empty sanitized output")
+        clean_answer = _deterministic_reply_fallback(language_code, message)
+        used_deterministic_fallback = True
+    if _is_model_unavailable_text(clean_answer):
+        clean_answer = _deterministic_reply_fallback(language_code, message)
+        used_deterministic_fallback = True
 
     rendered = ui.render_chat_default_output(clean_answer, language_code, message, sources=source_lines)
     backend_used, fallback_used = ui.adapter_backend_info(model)
-    return rendered, language_code, source_lines, "standard", backend_used, fallback_used
+    if used_deterministic_fallback:
+        fallback_used = True
+    generation_path = "standard_fallback" if used_deterministic_fallback else "standard"
+    return rendered, language_code, source_lines, generation_path, backend_used, fallback_used
 
 
 @app.get("/v1/health")
@@ -450,19 +705,38 @@ def health() -> dict[str, Any]:
         ui.psql("SELECT 1;")
     except Exception:
         db = "fail"
+    ui_port, api_port = _current_ports()
     model, model_name = _model_status()
     hs = ui.gateway_health_status()
+    generator_backends = hs.get("generator_backends", {})
+    ollama_models: set[str] = set()
+    ollama_tags_error = ""
+    if bool(generator_backends.get("ollama", {}).get("available")):
+        ollama_models, ollama_tags_error = _ollama_known_models()
+    runtime = _runtime_status(
+        generator_backends=generator_backends,
+        known_ollama_models=ollama_models,
+        ollama_tags_error=ollama_tags_error,
+    )
+    routing = _task_model_routing(
+        runtime=runtime,
+        known_ollama_models=ollama_models,
+        ollama_tags_error=ollama_tags_error,
+    )
     return {
         "status": "ok",
         "version": VERSION_FILE.read_text(encoding="utf-8").strip(),
-        "ui_port": 8093,
-        "api_port": 8094,
+        "ui_port": ui_port,
+        "api_port": api_port,
         "db": db,
         "model": model,
         "model_name": model_name,
         "generator_order": hs.get("generator_order", []),
-        "generator_backends": hs.get("generator_backends", {}),
+        "generator_backends": generator_backends,
         "breaker": hs.get("breaker", {}),
+        "runtime_status": runtime,
+        "task_model_routing": routing,
+        "request_counts_last_minute": _request_counts_last_minute(),
     }
 
 
@@ -521,7 +795,9 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
         "extra": (body.metadata or {}).get("extra", {}),
     }
     user_id = ui.insert_interaction("user", message, meta)
-    assistant_message, language_code, source_lines, gen_path, backend_used, backend_fallback_used = _generate_reply(message, conversation_id, user_id)
+    assistant_message, language_code, source_lines, gen_path, backend_used, backend_fallback_used = _generate_reply(
+        message, conversation_id, user_id, thread_context=body.thread_context
+    )
     assistant_id = ui.insert_interaction(
         "assistant",
         assistant_message,

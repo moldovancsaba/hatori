@@ -2,6 +2,30 @@
 
 All notable changes to this project are tracked here.
 
+## [0.6.4] - 2026-03-01
+
+### Fixed
+- Toolbar/runtime observability compatibility: `/v1/health` now exposes `runtime_status`, `task_model_routing`, and `request_counts_last_minute` so menubar status lines resolve concrete values instead of `unknown`.
+- Health ports are now reported from runtime env (`UI_PORT`, `API_PORT`) instead of static defaults, matching actual launch configuration.
+- LaunchAgent startup reliability for `{hatori}` service: restored and wired required supervisor scripts (`tools/scripts/hatori_service.sh`, `tools/scripts/port_owner.sh`, `tools/scripts/is_hatori_pid.sh`) so menu start/restart/keepalive behavior is functional again.
+
+## [0.6.3] - 2026-03-01
+
+### Fixed
+- API `{reply}` generation reliability: `/v1/agent/respond` now returns a deterministic user-facing draft fallback instead of exposing `unsafe model output removed` / local-model error text in user-visible message content.
+- Planning intent detection no longer false-matches arbitrary `ma` substrings (for example in `email`), reducing accidental routing of normal draft requests into planning flow.
+- LaunchAgent service recovery for menubar runtime: restored missing supervisor scripts (`tools/scripts/hatori_service.sh`, `tools/scripts/port_owner.sh`, `tools/scripts/is_hatori_pid.sh`) so UI/API autostart on `23571/23572` works again.
+
+### Changed
+- API metadata now marks deterministic reply fallback via `generation_path=standard_fallback` and `backend_fallback_used=true` when fallback text is emitted.
+
+## [0.6.2] - 2026-02-28
+
+### Added
+- Stateless `thread_context` support in `POST /v1/agent/respond`.
+- Priority-based context injection: `thread_context` from payload now overrides DB history for draft generation, ensuring race-free context-aware replies for `{reply}`.
+- Automated outcome loop validation against the `{reply}` annotation contract in the `agent_outcome` endpoint.
+
 ## [0.6.1] - 2026-02-28
 
 ### Changed

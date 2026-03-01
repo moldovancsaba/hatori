@@ -67,6 +67,9 @@ Expected `/v1/health` machine fields:
 - `generator_backends.ollama.available`
 - `breaker`
 - `generator_order`
+- `runtime_status` (mlx/ollama backend + model + error)
+- `task_model_routing` (`writer`, `drafter`, `judge` with route + health)
+- `request_counts_last_minute`
 
 Launcher defaults:
 - `HATORI_MODEL=ollama`
@@ -149,6 +152,14 @@ Expected behavior:
   - Verify `brew services start ollama`.
   - Verify local service responds on `http://127.0.0.1:11434/api/tags`.
   - Verify `HATORI_OLLAMA_MODEL` exists locally (`ollama list`).
+- `{reply}` sees `unsafe model output removed` or local-model text:
+  - Pull latest code and restart API process.
+  - `/v1/agent/respond` now has deterministic draft fallback for unsafe/unavailable model paths; verify response metadata includes `generation_path=standard_fallback` and `backend_fallback_used=true`.
+  - If normal draft requests are routed into planning output, verify the planning intent detector update is active (no substring match on `ma` inside unrelated words).
+- Menubar shows API down and LaunchAgent loops:
+  - Verify service scripts exist and are executable: `tools/scripts/hatori_service.sh`, `tools/scripts/port_owner.sh`, `tools/scripts/is_hatori_pid.sh`.
+  - Reload agent: `launchctl kickstart -k gui/501/com.hatori`.
+  - Check logs: `tail -n 80 ~/Library/Logs/Hatori/hatori.log`.
 
 ## API outcome loop (`{reply}` -> Hatori)
 
