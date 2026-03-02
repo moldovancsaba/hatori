@@ -2,6 +2,25 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.6] - 2026-03-02
+
+### Added
+- `POST /v1/agent/respond` now accepts `thread_context` for explicit upstream conversation context injection from `{reply}`.
+
+### Changed
+- Language selection in API respond flow now supports explicit hints from integration metadata:
+  - `metadata.language_hint`
+  - `metadata.identified_language`
+  - `metadata.language`
+- Language fallback now resolves using a strict order:
+  1) explicit integration hint
+  2) current message auto-detect
+  3) recent `thread_context` auto-detect (for short/ambiguous messages)
+- Integrated thread context is merged into prompt history before generation, improving multi-turn continuity for omnichannel callers.
+
+### Fixed
+- Reduced English fallback misfires for Hungarian conversation flows by honoring upstream identified language as deterministic fallback.
+
 ## [0.7.5] - 2026-03-02
 
 ### Fixed

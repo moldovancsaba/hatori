@@ -173,6 +173,7 @@ class RespondBody(BaseModel):
     received_at: str | None = None
     mode: str = "chat"
     external_request_id: str | None = None
+    thread_context: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -440,9 +441,75 @@ def _is_unsendable_reply_text(text: str) -> bool:
     return any(marker in lowered for marker in markers)
 
 
-def _generate_reply(message: str, conversation_id: str, user_id: str) -> tuple[dict[str, Any], str, list[str], str]:
-    language_code = ui.detect_message_language(message)
+def _normalize_lang_code(value: str | None) -> str:
+    code = (value or "").strip().lower()
+    if not code:
+        return ""
+    aliases = {
+        "hungarian": "hu",
+        "hu-hu": "hu",
+        "english": "en",
+        "en-us": "en",
+        "en-gb": "en",
+        "german": "de",
+        "de-de": "de",
+        "spanish": "es",
+        "es-es": "es",
+        "romanian": "ro",
+        "ro-ro": "ro",
+    }
+    return aliases.get(code, code if code in {"hu", "en", "de", "es", "ro"} else "")
+
+
+def _resolve_language_code(message: str, metadata: dict[str, Any], thread_context: list[dict[str, Any]]) -> str:
+    hinted = _normalize_lang_code(
+        (metadata or {}).get("language_hint")
+        or (metadata or {}).get("identified_language")
+        or (metadata or {}).get("language")
+    )
+    if hinted:
+        return hinted
+
+    auto_from_msg = ui.detect_message_language(message)
+    if auto_from_msg != "en":
+        return auto_from_msg
+
+    # If current message is ambiguous/short, infer from recent thread context text.
+    ctx_texts: list[str] = []
+    for item in (thread_context or [])[-20:]:
+        if not isinstance(item, dict):
+            continue
+        txt = (item.get("text") or "").strip()
+        if txt:
+            ctx_texts.append(txt)
+    if ctx_texts:
+        auto_from_ctx = ui.detect_message_language("\n".join(ctx_texts))
+        if auto_from_ctx:
+            return auto_from_ctx
+    return auto_from_msg or "en"
+
+
+def _generate_reply(
+    message: str,
+    conversation_id: str,
+    user_id: str,
+    *,
+    language_override: str | None = None,
+    thread_context: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], str, list[str], str]:
+    language_code = _normalize_lang_code(language_override) or ui.detect_message_language(message)
     history_turns = ui.load_chat_history_for_prompt(chat_id=conversation_id, limit=10)
+    ctx = thread_context or []
+    for item in ctx[-10:]:
+        if not isinstance(item, dict):
+            continue
+        txt = (item.get("text") or "").strip()
+        role = (item.get("role") or "contact").strip().lower()
+        if not txt:
+            continue
+        mapped_role = "assistant" if role == "me" else "user"
+        history_turns.append({"role": mapped_role, "content": txt})
+    history_turns = history_turns[-12:]
     pks_rows = ui.load_pks_context(limit=6)
     evidence_rows = ui.load_local_evidence_context(query=message, limit=5)
     source_lines = ui.build_human_sources_lines(language_code, pks_rows, evidence_rows)
@@ -705,6 +772,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
                 "sources": source_lines,
             }
 
+    language_code = _resolve_language_code(message, body.metadata or {}, body.thread_context or [])
     meta = {
         "source": "reply",
         "chat_id": conversation_id,
@@ -716,10 +784,18 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
         "platform": (body.metadata or {}).get("platform", ""),
         "channel": (body.metadata or {}).get("channel", ""),
         "external_request_id": external_request_id,
+        "identified_language": language_code,
+        "thread_context_count": len(body.thread_context or []),
         "extra": (body.metadata or {}).get("extra", {}),
     }
     user_id = ui.insert_interaction("user", message, meta)
-    assistant_struct, language_code, source_lines, gen_path = _generate_reply(message, conversation_id, user_id)
+    assistant_struct, language_code, source_lines, gen_path = _generate_reply(
+        message,
+        conversation_id,
+        user_id,
+        language_override=language_code,
+        thread_context=body.thread_context or [],
+    )
     model_adapter, _adapter_err = ui.select_chat_model_adapter(task="plan_write" if ui.is_daily_planning_request(message) else "reply_write")
     assistant_interaction_id = ui.insert_interaction(
         "assistant",
