@@ -42,6 +42,10 @@ For `edited_then_sent`, send:
 - `429`: rate limited (retry with backoff)
 - `5xx`: temporary local dependency failure (retry with backoff)
 
+Reply generation resilience note:
+- `POST /v1/agent/respond` is expected to return a send-ready `assistant_message` even when the local model path is unstable.
+- Internal model/runtime text (for example `Local model error: ...`) must not be surfaced to `{reply}` users.
+
 ## Security
 
 - Token source: `~/.config/hatori/hatori.env`

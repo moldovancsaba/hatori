@@ -2,7 +2,12 @@
 
 # Braindump: Next Agent Continuation
 
-Last updated: 2026-02-27
+Last updated: 2026-03-02
+
+## Latest learnings (2026-03-02)
+- `reply` integration can still receive unusable text even when model runtime is technically available; treat internal scaffold leakage as a hard failure and fall back deterministically.
+- Naive substring planning detection (`"ma"` inside words such as `email`) causes misrouting into planning logic; intent gates should use regex word boundaries.
+- Toolbar/service health may show repeated `foreign process owns port` messages when UI/API were started manually; launchd service mode intentionally refuses takeover for safety.
 
 ## Current state
 - Repo: `/Users/moldovancsaba/Projects/hatori`

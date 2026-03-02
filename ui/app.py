@@ -375,6 +375,12 @@ FORBIDDEN_SCAFFOLD_MARKERS = [
     "tanulási napló",
     "tanulasi naplo",
     "required behavior",
+    "verification ladder",
+    "no memory changes",
+    "connectivity state",
+    "i am {hatori}",
+    "i am hatori",
+    "classify this as a daily task",
 ]
 
 FORBIDDEN_USER_VISIBLE_MARKERS = [
@@ -386,6 +392,11 @@ FORBIDDEN_USER_VISIBLE_MARKERS = [
     "cite provenance",
     "follow charter",
     "required behaviour",
+    "verification ladder",
+    "no memory changes",
+    "connectivity state",
+    "i am {hatori}",
+    "i am hatori",
 ]
 
 
@@ -537,24 +548,28 @@ def build_drafter_context_pack(user_text: str, language_code: str, history_turns
 
 
 def is_daily_planning_request(text: str) -> bool:
-    lowered = text.lower()
-    markers = [
-        "daily plan",
-        "weekly plan",
-        "plan my day",
-        "planning",
-        "napi terv",
-        "napi",
-        "prioritás",
-        "prioritas",
-        "teendő",
-        "teendo",
-        "ma",
-        "heti terv",
-        "tervez",
-        "ütemez",
+    lowered = (text or "").lower().strip()
+    if not lowered:
+        return False
+
+    direct_patterns = [
+        r"\bdaily\s+plan\b",
+        r"\bweekly\s+plan\b",
+        r"\bplan\s+my\s+day\b",
+        r"\bplanning\b",
+        r"\bnapi\s+terv\w*\b",
+        r"\bheti\s+terv\w*\b",
+        r"\btervez\w*\b",
+        r"\bütemez\w*\b",
+        r"\bpriorit[aá]s\w*\b",
+        r"\bteend[oő]\w*\b",
     ]
-    return any(m in lowered for m in markers)
+    if any(re.search(pat, lowered) for pat in direct_patterns):
+        return True
+
+    has_today_marker = bool(re.search(r"\b(ma|mai|today)\b", lowered))
+    has_task_marker = bool(re.search(r"\b(feladat\w*|tasks?|priorit(?:y|ies)|priorit[aá]s\w*)\b", lowered))
+    return has_today_marker and has_task_marker
 
 
 def is_greeting_only(text: str, language_code: str) -> bool:

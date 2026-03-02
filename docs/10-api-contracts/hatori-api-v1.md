@@ -141,6 +141,7 @@ Response `200`:
 Notes:
 - `assistant_message` is user-facing only; no internal scaffolding/IDs.
 - If `external_request_id` is reused, server returns existing assistant row (idempotent replay behavior).
+- If local model output is unavailable/unsafe/internal-scaffold, server returns a deterministic send-ready fallback message instead of exposing model runtime error text.
 
 ## 8.3 POST /v1/agent/feedback
 

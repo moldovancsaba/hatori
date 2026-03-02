@@ -167,6 +167,9 @@ Expected behavior:
   - Run `make stop` (stops only {hatori} listeners).
   - Re-run `make run` or `make install-service`.
   - If a non-{hatori} process owns the port, startup refuses and prints PID + CMD (no forced kill).
+- Service status shows `foreign process owns port`:
+  - Cause: UI/API were started manually with `python -m uvicorn ...`, outside the launchd supervisor.
+  - Recovery: run `make stop`, then start via menu `Start/Install Service` or `make install-service`.
 - Service logs:
   - `make service-logs`
 - Reply integration smoke:

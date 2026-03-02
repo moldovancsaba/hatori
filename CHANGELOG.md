@@ -2,6 +2,19 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.5] - 2026-03-02
+
+### Fixed
+- `/v1/agent/respond` now guarantees a user-sendable fallback message when:
+  - local model runtime is unavailable
+  - unsafe output gets removed
+  - model output leaks internal scaffold/policy text (for example `I am {hatori}`, `Verification Ladder`, `No memory changes`, connectivity meta lines)
+- Prevented false daily-planning routing caused by substring matching (for example `ma` inside `email`) by switching to regex-based intent detection.
+
+### Changed
+- API generation path now marks deterministic fallback executions as `standard_fallback` for easier runtime traceability.
+- Shared sanitizer marker set expanded to filter known internal scaffold phrases before output reaches integration channels.
+
 ## [0.7.4] - 2026-02-28
 
 ### Added

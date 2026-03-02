@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/moldovancsaba/hatori/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/moldovancsaba/hatori/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI"></a>
-  <img src="https://img.shields.io/badge/version-v0.7.4-2563EB?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v0.7.5-2563EB?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-0F172A?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/api-v1-0EA5E9?style=for-the-badge" alt="API v1">
 </p>
@@ -160,6 +160,9 @@ Local operations runbook:
 - `POST /v1/artefacts/ingest_path` (default disabled)
 - `GET /v1/search`
 
+`/v1/agent/respond` safety behavior:
+- if local model output is unavailable/unsafe/internal-scaffold, API returns a deterministic send-ready fallback text instead of surfacing model error text to integrators.
+
 ### WebSocket Status
 
 Current stable contract is HTTP-only. No public WebSocket endpoint is exposed in v1.
@@ -176,6 +179,9 @@ Current stable contract is HTTP-only. No public WebSocket endpoint is exposed in
   - reuse if `{hatori}` already owns the port
   - refuse if foreign process owns the port
   - never kill non-`{hatori}` services
+- Service ownership rule:
+  - if UI/API were started manually (`python -m uvicorn ...`), launchd service mode reports them as foreign owners.
+  - use `make stop` then `make install-service` to return to service-managed operation.
 
 ## Validation and Testing
 
@@ -206,7 +212,7 @@ make integration-acceptance
 ## Versioning and Releases
 
 Current version:
-- `v0.7.4` (from [`VERSION`](VERSION))
+- `v0.7.5` (from [`VERSION`](VERSION))
 
 Release and SemVer policy:
 - [`docs/04-ops/versioning-release.md`](docs/04-ops/versioning-release.md)
