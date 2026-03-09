@@ -90,13 +90,13 @@ service-logs:
 reply-smoke:
 	./tools/scripts/reply_smoke.sh
 
-.PHONY: install-menubar-app
-install-menubar-app:
-	./tools/macos/HatoriMenu/install_menubar_app.sh
+.PHONY: install-HatoriMenubar
+install-HatoriMenubar:
+	./tools/macos/HatoriMenubar/install_HatoriMenubar.sh
 
-.PHONY: run-menubar-app
-run-menubar-app:
-	open "$$HOME/Applications/HatoriMenu.app"
+.PHONY: run-HatoriMenubar
+run-HatoriMenubar:
+	open "$$HOME/Applications/HatoriMenubar.app"
 
 .PHONY: up
 up:
@@ -128,3 +128,15 @@ doctor:
 .PHONY: integration-acceptance
 integration-acceptance:
 	./tools/scripts/integration_acceptance.sh
+
+.PHONY: searxng-up
+searxng-up:
+	./tools/scripts/searxng_up.sh
+
+.PHONY: searxng-down
+searxng-down:
+	./tools/scripts/searxng_down.sh
+
+.PHONY: searxng-status
+searxng-status:
+	./tools/scripts/searxng_status.sh

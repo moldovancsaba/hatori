@@ -1,6 +1,6 @@
 # {hatori} Menu User Guide
 
-This guide explains what you can do from the macOS menu bar app (`HatoriMenu`).
+This guide explains what you can do from the macOS menu bar app (`HatoriMenubar`).
 
 ## What You See At The Top
 
@@ -70,6 +70,12 @@ This helps you quickly diagnose:
 
 - runtime shows `down`
 : check local runtime (`ollama list`, MLX env/model config), then restart service.
+
+- need temporary continuity while MLX is broken
+: run `tools/scripts/hatori_mlx_mode.sh off`, then restart service (`make install-service`); MLX writer lanes are rewired to Apertus via fallback backend.
+
+- MLX recovered and should be primary again
+: run `tools/scripts/hatori_mlx_mode.sh on`, restart service, then confirm `/v1/health` shows `runtime_status.mlx.ok=true`.
 
 - lane is `down` or unexpected model
 : check `~/.config/hatori/hatori.env` route keys (`HATORI_ROUTE_<TASK>_*`), then restart.

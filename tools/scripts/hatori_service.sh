@@ -25,6 +25,10 @@ set +a
 UI_PORT="${UI_PORT:-8093}"
 API_PORT="${API_PORT:-8094}"
 export UI_PORT API_PORT
+DOCKER_RETRY_INTERVAL="${DOCKER_RETRY_INTERVAL:-30}"
+DOCKER_LAST_ATTEMPT_EPOCH=0
+DOCKER_LAST_STATE=""
+DOCKER_LOCK_DIR="/tmp/hatori_docker_bootstrap.lockdir"
 
 ensure_docker_stack() {
   if ! command -v docker >/dev/null 2>&1; then
@@ -32,11 +36,47 @@ ensure_docker_stack() {
     return 1
   fi
   if command -v colima >/dev/null 2>&1; then
-    colima start >/dev/null 2>&1 || true
+    if ! colima status >/dev/null 2>&1; then
+      if ! colima start >/dev/null 2>&1; then
+        log "[docker] colima start failed"
+        return 1
+      fi
+    fi
     docker context use colima >/dev/null 2>&1 || true
   fi
   (cd "$ROOT" && make up) || return 1
   return 0
+}
+
+try_bootstrap_docker_stack() {
+  local now rc
+  now="$(date +%s)"
+  if [ $((now - DOCKER_LAST_ATTEMPT_EPOCH)) -lt "$DOCKER_RETRY_INTERVAL" ]; then
+    return 0
+  fi
+  DOCKER_LAST_ATTEMPT_EPOCH="$now"
+
+  if ! mkdir "$DOCKER_LOCK_DIR" 2>/dev/null; then
+    if [ "$DOCKER_LAST_STATE" != "locked" ]; then
+      log "[docker] bootstrap already in progress; skipping"
+      DOCKER_LAST_STATE="locked"
+    fi
+    return 0
+  fi
+
+  if ensure_docker_stack; then
+    if [ "$DOCKER_LAST_STATE" != "ok" ]; then
+      log "[docker] stack ready"
+      DOCKER_LAST_STATE="ok"
+    fi
+  else
+    rc=$?
+    if [ "$DOCKER_LAST_STATE" != "fail:$rc" ]; then
+      log "[docker] stack bootstrap failed (rc=$rc); retry in ${DOCKER_RETRY_INTERVAL}s"
+      DOCKER_LAST_STATE="fail:$rc"
+    fi
+  fi
+  rmdir "$DOCKER_LOCK_DIR" >/dev/null 2>&1 || true
 }
 
 start_one() {
@@ -63,10 +103,6 @@ start_one() {
   return 2
 }
 
-until ensure_docker_stack; do
-  log "Retrying docker/db startup in 5s"
-  sleep 5
-done
 if [ "${HATORI_SKIP_OLLAMA_ENSURE:-0}" != "1" ]; then
   "$ROOT/tools/scripts/ensure_ollama.sh" || true
 fi
@@ -76,7 +112,9 @@ ui_backoff=1
 last_api=""
 last_ui=""
 while true; do
-  if start_one api "$API_PORT" ". $ROOT/.venv/bin/activate && HATORI_API_TOKEN=\${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host 127.0.0.1 --port $API_PORT"; then
+  try_bootstrap_docker_stack
+
+  if start_one api "$API_PORT" "set -a; . \"$ENV_FILE\"; set +a; . $ROOT/.venv/bin/activate && HATORI_API_TOKEN=\${HATORI_API_TOKEN:?set HATORI_API_TOKEN} python -m uvicorn api.app:app --host 127.0.0.1 --port $API_PORT"; then
     api_owner="$($ROOT/tools/scripts/port_owner.sh "$API_PORT" 2>/dev/null || true)"
     api_state="api:${api_owner}"
     if [ "$api_state" != "$last_api" ]; then
@@ -95,7 +133,7 @@ while true; do
     fi
   fi
 
-  if start_one ui "$UI_PORT" ". $ROOT/.venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $UI_PORT"; then
+  if start_one ui "$UI_PORT" "set -a; . \"$ENV_FILE\"; set +a; . $ROOT/.venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $UI_PORT"; then
     ui_owner="$($ROOT/tools/scripts/port_owner.sh "$UI_PORT" 2>/dev/null || true)"
     ui_state="ui:${ui_owner}"
     if [ "$ui_state" != "$last_ui" ]; then

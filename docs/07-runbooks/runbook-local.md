@@ -15,15 +15,20 @@ make install-service
 make service-status
 ```
 
+Service startup behavior:
+- API/UI startup is non-blocking with respect to Docker/DB bootstrap.
+- If Docker/Colima is unavailable at login, service still starts API/UI and retries DB bootstrap in background.
+- Health may show `DB: down/unknown` temporarily while API remains reachable.
+
 Menu bar control app (health + stop/restart/quit):
 
 ```bash
-make install-menubar-app
-make run-menubar-app
+make install-HatoriMenubar
+make run-HatoriMenubar
 ```
 
 Installed app location:
-- `~/Applications/HatoriMenu.app`
+- `~/Applications/HatoriMenubar.app`
 
 Menu user guide:
 - `docs/07-runbooks/menu-user-guide.md`
@@ -31,7 +36,7 @@ Menu user guide:
 To auto-start the menu bar app on login:
 1. Open macOS `System Settings`
 2. Go to `General` -> `Login Items`
-3. Click `+` and select `~/Applications/HatoriMenu.app`
+3. Click `+` and select `~/Applications/HatoriMenubar.app`
 
 One-command foreground run (local terminal):
 
@@ -55,6 +60,38 @@ Concurrency rule:
 - If a second command starts while another holds the DB lock, it fails fast with `DB busy; retry`.
 
 ## Daily runtime commands
+
+### Online search routing (SearXNG + local LLM synthesis)
+
+Start local SearXNG:
+
+```bash
+make searxng-up
+make searxng-status
+```
+
+Enable online routing in `~/.config/hatori/hatori.env`:
+
+```bash
+HATORI_ENABLE_ONLINE=1
+HATORI_ONLINE_ROUTE_MODE=auto
+HATORI_ONLINE_SYNTHESIS_MODE=direct
+HATORI_SEARXNG_URL=http://127.0.0.1:8888
+```
+
+Restart service:
+
+```bash
+make install-service
+```
+
+Behavior:
+- `HATORI_ONLINE_ROUTE_MODE=auto`: normal natural-language questions are routed through online retrieval.
+- `HATORI_ONLINE_ROUTE_MODE=keyword`: only clearly online-intent questions are routed.
+- `HATORI_ONLINE_ROUTE_MODE=off`: disables online retrieval path.
+- `HATORI_ONLINE_SYNTHESIS_MODE=direct`: return sourced web synthesis directly (fast, default).
+- `HATORI_ONLINE_SYNTHESIS_MODE=llm`: pass web snippets to local LLM for rewritten final response.
+- Online synthesis uses a lightweight LLM lane (`retrieval_query_build`) for faster responses.
 
 ### Ask (offline runtime)
 
@@ -84,6 +121,21 @@ python -m hatori.cli model-smoke "Respond in one sentence"
 Launcher defaults:
 - `HATORI_MODEL=ollama`
 - `HATORI_OLLAMA_MODEL=llama3.2:3b`
+
+MLX operational failover switch:
+
+```bash
+tools/scripts/hatori_mlx_mode.sh status
+tools/scripts/hatori_mlx_mode.sh off
+make install-service
+curl -sS http://127.0.0.1:23572/v1/health
+tools/scripts/hatori_mlx_mode.sh on
+make install-service
+```
+
+Behavior:
+- `off` sets `HATORI_DISABLE_MLX=1` and rewires MLX writer lanes (`reply_write`, `plan_write`, `rewrite_polish`) to use the same Apertus model id via fallback backend.
+- `on` sets `HATORI_DISABLE_MLX=0` and restores MLX eligibility in routing.
 
 Llama.cpp adapter (local/offline, user-provided model path):
 
@@ -139,7 +191,7 @@ Expected behavior:
 
 ## Notes
 
-- Current runtime mode is intentionally `OFFLINE`.
+- Runtime connectivity is configurable: `OFFLINE`, `ONLINE-UNVERIFIED`, or `ONLINE-VERIFIED`.
 - Retrieval merges keyword + semantic ranking over:
   - `pks_records` (Approved by default)
   - `embeddings.content` + `embeddings.embedding` (pgvector cosine distance)
@@ -172,6 +224,11 @@ Expected behavior:
   - Recovery: run `make stop`, then start via menu `Start/Install Service` or `make install-service`.
 - Service logs:
   - `make service-logs`
+- API up but DB down after login:
+  - Cause: Docker/Colima was unavailable during service bootstrap.
+  - Verify API is reachable: `curl -sS http://127.0.0.1:23572/v1/health`
+  - Restore Docker runtime: `colima start && docker context use colima && make up`
+  - The supervisor retries DB bootstrap automatically; or trigger immediate retry with `make install-service`.
 - Reply integration smoke:
   - `make reply-smoke`
 

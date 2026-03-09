@@ -3,6 +3,13 @@ set -euo pipefail
 
 target="${1:-all}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+env_file="${HOME}/.config/hatori/hatori.env"
+if [ -f "$env_file" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+fi
 ui_port="${UI_PORT:-${PORT:-8093}}"
 api_port="${API_PORT:-8094}"
 

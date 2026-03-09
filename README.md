@@ -131,12 +131,12 @@ make uninstall-service
 ### 3) macOS menu bar app
 
 ```bash
-make install-menubar-app
-make run-menubar-app
+make install-HatoriMenubar
+make run-HatoriMenubar
 ```
 
 App path:
-- `~/Applications/HatoriMenu.app`
+- `~/Applications/HatoriMenubar.app`
 
 ## API and Integration
 

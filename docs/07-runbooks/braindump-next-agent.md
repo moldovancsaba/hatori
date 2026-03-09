@@ -4,10 +4,47 @@
 
 Last updated: 2026-03-02
 
+## 70 Protocol Handover Entry (2026-03-02 22:18:57 EET, AI Dev Agent)
+- Branch: `publish-main`
+- Head commit: `4b83a30`
+- Objective:
+  - Fix MLX runtime health (`MLX down`) so `{hatori}` health/menu show real MLX availability and routing.
+- SSOT:
+  - Created issue: `mvp-factory-control#337`
+    - https://github.com/moldovancsaba/mvp-factory-control/issues/337
+  - Added to Project Board 1 (`MVP Factory Board`).
+  - Set board fields:
+    - Status: `In Progress (NOW)`
+    - Product: `{hatori}`
+    - Type: `Bug`
+    - Priority: `P1`
+  - Start note posted:
+    - https://github.com/moldovancsaba/mvp-factory-control/issues/337#issuecomment-3986713125
+- What changed:
+  - No runtime/code fix implemented yet after trigger.
+  - Executed governance/ritual updates only (SSOT + handover).
+- Files touched:
+  - `/Users/moldovancsaba/Projects/hatori/docs/07-runbooks/braindump-next-agent.md`
+- Validation executed:
+  - `git -C /Users/moldovancsaba/Projects/hatori fetch --all --prune`
+  - `git -C /Users/moldovancsaba/Projects/hatori status --short --branch`
+  - `git -C /Users/moldovancsaba/Projects/hatori pull --ff-only`
+  - `gh project field-list 1 --owner moldovancsaba --format json`
+  - `gh api graphql ... issue(number:337) { projectItems { nodes { id ... } } }`
+  - `gh project item-edit ...` for Status/Product/Type/Priority
+  - `gh issue comment 337 ...`
+- Known risks/blockers:
+  - None yet for implementation; runtime diagnosis not started after 70 trigger.
+- Immediate next actions:
+  1. Reproduce MLX down condition from `/v1/health`.
+  2. Inspect MLX adapter healthcheck path and env resolution.
+  3. Patch runtime detection/init for stable MLX up status.
+  4. Validate menu output and lane routing telemetry with evidence.
+
 ## Latest learnings (2026-03-02)
 - `reply` integration can still receive unusable text even when model runtime is technically available; treat internal scaffold leakage as a hard failure and fall back deterministically.
 - Naive substring planning detection (`"ma"` inside words such as `email`) causes misrouting into planning logic; intent gates should use regex word boundaries.
-- Toolbar/service health may show repeated `foreign process owns port` messages when UI/API were started manually; launchd service mode intentionally refuses takeover for safety.
+- Menubar/service health may show repeated `foreign process owns port` messages when UI/API were started manually; launchd service mode intentionally refuses takeover for safety.
 
 ## Current state
 - Repo: `/Users/moldovancsaba/Projects/hatori`

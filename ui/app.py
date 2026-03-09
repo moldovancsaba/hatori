@@ -3,6 +3,8 @@ import html
 import json
 import mimetypes
 import os
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 import re
@@ -25,6 +27,7 @@ from hatori.model import prefer_ollama_if_available
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
 from hatori.cli import search_runtime
+from hatori.cli import connectivity_state
 
 CID = os.environ.get("CID", "hatori-pg")
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
@@ -337,17 +340,344 @@ def language_name(code: str) -> str:
 
 
 def localized_model_error(code: str, err: str) -> str:
+    _ = err
     if code == "ro":
-        return f"Eroare model local: {err}"
+        return "Modelul local este temporar indisponibil. Incearca din nou in cateva secunde."
     if code == "hu":
-        return f"Helyi modellhiba: {err}"
+        return "A helyi modell atmenetileg nem elerheto. Probald ujra nehany masodperc mulva."
     if code == "es":
-        return f"Error del modelo local: {err}"
+        return "El modelo local no esta disponible temporalmente. Intentalo de nuevo en unos segundos."
     if code == "fr":
-        return f"Erreur du modele local: {err}"
+        return "Le modele local est temporairement indisponible. Reessayez dans quelques secondes."
     if code == "de":
-        return f"Lokaler Modellfehler: {err}"
-    return f"Local model error: {err}"
+        return "Das lokale Modell ist vorubergehend nicht verfugbar. Bitte in ein paar Sekunden erneut versuchen."
+    return "Local model is temporarily unavailable. Please retry in a few seconds."
+
+
+def is_weather_request(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    return bool(
+        re.search(
+            r"\b(weather|forecast|temperature|temp|rain|wind|humidity|idojaras|homerseklet|vremea|meteo)\b",
+            t,
+        )
+    )
+
+
+def localized_weather_offline_fallback(code: str, user_text: str) -> str:
+    city_match = re.search(r"\b(?:in|for)\s+([A-Za-z][A-Za-z .'-]{1,40})\b", user_text, flags=re.IGNORECASE)
+    city = (city_match.group(1).strip() if city_match else "").rstrip("?.!,")
+    place = city or "that location"
+    if code == "hu":
+        return f"Most nem erek el elo idojarasi adatot {place} teruletre. Nyisd meg az Apple Weather vagy a weather.com oldalt, es irj vissza a hofok/szel/paratartalom adataival; azokbol azonnal adok rovid ertelmezest."
+    return f"I cannot fetch live weather data for {place} right now. Please check Apple Weather or weather.com and share temperature/wind/humidity, and I will summarize it immediately."
+
+
+def is_online_search_request(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    return bool(
+        re.search(
+            r"\b(weather|forecast|latest|today|news|current|price|stock|who is|what is|search|look up|find online|internet)\b",
+            t,
+        )
+    )
+
+
+def should_route_online_search(text: str, conn_state: str) -> bool:
+    if conn_state == "OFFLINE":
+        return False
+    mode = (os.environ.get("HATORI_ONLINE_ROUTE_MODE") or "auto").strip().lower()
+    if mode == "off":
+        return False
+    if mode == "keyword":
+        return is_online_search_request(text)
+    # auto: route most natural-language questions via online retrieval when internet mode is on.
+    clean = (text or "").strip()
+    if not clean:
+        return False
+    if len(clean) >= 12:
+        return True
+    return "?" in clean
+
+
+def _searxng_base_url() -> str:
+    return (os.environ.get("HATORI_SEARXNG_URL") or "http://127.0.0.1:8888").strip().rstrip("/")
+
+
+def _searxng_search(query: str, limit: int = 5) -> list[dict[str, str]]:
+    engines = (os.environ.get("HATORI_SEARXNG_ENGINES") or "wikipedia,startpage").strip()
+    endpoint = _searxng_base_url() + "/search?" + urllib.parse.urlencode(
+        {
+            "q": query,
+            "format": "json",
+            "language": "en-US",
+            "safesearch": "0",
+            "engines": engines,
+        }
+    )
+    req = urllib.request.Request(
+        endpoint,
+        headers={
+            "User-Agent": "hatori/1.0",
+            "Accept": "application/json",
+            "X-Forwarded-For": "127.0.0.1",
+            "X-Real-IP": "127.0.0.1",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        raw = resp.read()
+    payload = json.loads(raw.decode("utf-8", errors="ignore"))
+    results = payload.get("results") or []
+    hits: list[dict[str, str]] = []
+    for item in results:
+        if len(hits) >= limit:
+            break
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        snippet = str(item.get("content") or "").strip()
+        url = str(item.get("url") or "").strip()
+        if title or snippet:
+            hits.append({"title": title or "Result", "snippet": snippet, "url": url})
+    return hits
+
+
+def online_search_snippets(query: str, limit: int = 5) -> list[dict[str, str]]:
+    q = (query or "").strip()
+    if not q:
+        return []
+    # Primary online retrieval backend: SearXNG (self-hosted or local gateway).
+    try:
+        hits = _searxng_search(q, limit=limit)
+        if hits:
+            return hits[:limit]
+    except Exception:
+        pass
+    # Fallbacks keep online mode usable even if SearXNG is temporarily unavailable.
+    endpoint = "https://api.duckduckgo.com/?" + urllib.parse.urlencode(
+        {
+            "q": q,
+            "format": "json",
+            "no_html": "1",
+            "no_redirect": "1",
+            "skip_disambig": "1",
+        }
+    )
+    req = urllib.request.Request(endpoint, headers={"User-Agent": "hatori/1.0"})
+    with urllib.request.urlopen(req, timeout=6) as resp:
+        raw = resp.read()
+    payload = json.loads(raw.decode("utf-8", errors="ignore"))
+    hits: list[dict[str, str]] = []
+    abstract = (payload.get("AbstractText") or "").strip()
+    abstract_url = (payload.get("AbstractURL") or "").strip()
+    if abstract:
+        hits.append({"title": "Summary", "snippet": abstract, "url": abstract_url})
+    for item in payload.get("RelatedTopics") or []:
+        if len(hits) >= limit:
+            break
+        text = (item.get("Text") or "").strip() if isinstance(item, dict) else ""
+        url = (item.get("FirstURL") or "").strip() if isinstance(item, dict) else ""
+        if text:
+            title = text.split(" - ", 1)[0][:120]
+            hits.append({"title": title, "snippet": text, "url": url})
+    if hits:
+        return hits[:limit]
+    wiki_url = "https://en.wikipedia.org/w/api.php?" + urllib.parse.urlencode(
+        {
+            "action": "opensearch",
+            "search": q,
+            "limit": str(max(1, min(8, int(limit)))),
+            "namespace": "0",
+            "format": "json",
+        }
+    )
+    wiki_req = urllib.request.Request(wiki_url, headers={"User-Agent": "hatori/1.0"})
+    with urllib.request.urlopen(wiki_req, timeout=6) as resp:
+        wiki_raw = resp.read()
+    arr = json.loads(wiki_raw.decode("utf-8", errors="ignore"))
+    if isinstance(arr, list) and len(arr) >= 4:
+        titles = arr[1] if isinstance(arr[1], list) else []
+        descs = arr[2] if isinstance(arr[2], list) else []
+        urls = arr[3] if isinstance(arr[3], list) else []
+        for i, title in enumerate(titles):
+            if len(hits) >= limit:
+                break
+            snippet = str(descs[i]) if i < len(descs) else ""
+            url = str(urls[i]) if i < len(urls) else ""
+            hits.append({"title": str(title), "snippet": snippet, "url": url})
+    return hits[:limit]
+
+
+def _extract_weather_location(user_text: str) -> str:
+    txt = (user_text or "").strip()
+    for pat in [r"\b(?:in|for)\s+([A-Za-z][A-Za-z .'-]{1,40})\b", r"\b(?:at)\s+([A-Za-z][A-Za-z .'-]{1,40})\b"]:
+        m = re.search(pat, txt, flags=re.IGNORECASE)
+        if m:
+            return m.group(1).strip().rstrip("?.!,")
+    # Hungarian city suffix handling without hardcoding specific questions.
+    words = re.findall(r"[A-Za-zÁÉÍÓÖŐÚÜŰáéíóöőúüű'-]+", txt)
+    stopwords = {
+        "milyen", "mi", "mennyi", "hany", "hány", "most", "ido", "idő", "van", "lesz",
+        "hol", "szel", "szél", "fok", "fokos", "es", "és", "a", "az", "itt", "ott",
+        "ma", "holnap", "tegnap", "kint", "kinn",
+    }
+    suffixes = ("ban", "ben", "rol", "ról", "nal", "nál", "tol", "tól", "ba", "be", "on", "en", "ön")
+    candidates: list[str] = []
+    for w in words:
+        raw = w.strip("'-").lower()
+        if len(raw) < 3:
+            continue
+        if raw in stopwords:
+            continue
+        stem = raw
+        for sfx in suffixes:
+            if stem.endswith(sfx) and len(stem) - len(sfx) >= 3:
+                stem = stem[: -len(sfx)]
+                break
+        if stem and stem not in stopwords:
+            candidates.append(stem)
+    if candidates:
+        return candidates[-1]
+    return ""
+
+
+def fetch_live_weather(location: str) -> dict[str, str]:
+    loc = (location or "").strip()
+    if not loc:
+        return {}
+    geo_url = "https://geocoding-api.open-meteo.com/v1/search?" + urllib.parse.urlencode({"name": loc, "count": "1", "language": "en", "format": "json"})
+    geo_req = urllib.request.Request(geo_url, headers={"User-Agent": "hatori/1.0"})
+    with urllib.request.urlopen(geo_req, timeout=8) as resp:
+        geo_raw = resp.read()
+    geo_payload = json.loads(geo_raw.decode("utf-8", errors="ignore"))
+    results = geo_payload.get("results") or []
+    if not results or not isinstance(results[0], dict):
+        return {}
+    lat = results[0].get("latitude")
+    lon = results[0].get("longitude")
+    name = str(results[0].get("name") or loc).strip()
+    country = str(results[0].get("country") or "").strip()
+    place = f"{name}, {country}".strip().strip(",")
+    if lat is None or lon is None:
+        return {}
+    wx_url = "https://api.open-meteo.com/v1/forecast?" + urllib.parse.urlencode(
+        {
+            "latitude": str(lat),
+            "longitude": str(lon),
+            "current": "temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
+            "wind_speed_unit": "kmh",
+            "timezone": "auto",
+        }
+    )
+    wx_req = urllib.request.Request(wx_url, headers={"User-Agent": "hatori/1.0"})
+    with urllib.request.urlopen(wx_req, timeout=8) as resp:
+        wx_raw = resp.read()
+    wx_payload = json.loads(wx_raw.decode("utf-8", errors="ignore"))
+    cur = wx_payload.get("current") or {}
+    if not isinstance(cur, dict):
+        return {}
+    code = str(cur.get("weather_code") or "").strip()
+    code_map = {
+        "0": "Clear sky",
+        "1": "Mainly clear",
+        "2": "Partly cloudy",
+        "3": "Overcast",
+        "45": "Fog",
+        "48": "Rime fog",
+        "51": "Light drizzle",
+        "53": "Drizzle",
+        "55": "Dense drizzle",
+        "61": "Slight rain",
+        "63": "Rain",
+        "65": "Heavy rain",
+        "71": "Slight snow",
+        "73": "Snow",
+        "75": "Heavy snow",
+        "95": "Thunderstorm",
+    }
+    desc = ""
+    if code:
+        desc = code_map.get(code, f"Weather code {code}")
+    return {
+        "location": place or loc,
+        "temp_c": str(cur.get("temperature_2m") or "").strip(),
+        "feels_c": str(cur.get("temperature_2m") or "").strip(),
+        "humidity": str(cur.get("relative_humidity_2m") or "").strip(),
+        "wind_kmph": str(cur.get("wind_speed_10m") or "").strip(),
+        "desc": desc,
+    }
+
+
+def render_live_weather_answer(code: str, weather: dict[str, str]) -> str:
+    loc = weather.get("location") or "the requested location"
+    temp = weather.get("temp_c") or "?"
+    feels = weather.get("feels_c") or "?"
+    hum = weather.get("humidity") or "?"
+    wind = weather.get("wind_kmph") or "?"
+    desc = weather.get("desc") or ""
+    google_link = "https://www.google.com/search?q=" + urllib.parse.quote_plus(f"{loc} weather")
+    if code == "hu":
+        condition = f", {desc.lower()}" if desc else ""
+        return (
+            f"{loc}-on most {temp} fok van{condition}. "
+            f"(Hőérzet: {feels} fok, szél: {wind} km/h, páratartalom: {hum}%). "
+            f"Google-link: {google_link}"
+        )
+    tail = f", condition: {desc}" if desc else ""
+    return (
+        f"Right now in {loc}: {temp} C{tail}. "
+        f"(Feels like {feels} C, wind {wind} km/h, humidity {hum}%). "
+        f"Google link: {google_link}"
+    )
+
+
+def localized_no_internet_message(code: str) -> str:
+    if code == "hu":
+        return "Most nincs internetkapcsolat az elo webes kereseshez. Ha engedelyezed az online modot es van halozat, azonnal tudok friss adatokat hozni."
+    return "Live internet search is not available right now. Enable online mode and ensure network access to fetch fresh web data."
+
+
+def render_online_snippets_answer(code: str, query: str, hits: list[dict[str, str]]) -> str:
+    if not hits:
+        return localized_no_internet_message(code)
+    if code == "hu":
+        lines = [f"Talaltam friss webes talalatokat erre: {query}"]
+        for h in hits[:5]:
+            title = (h.get("title") or "").strip()
+            snippet = (h.get("snippet") or "").strip()
+            url = (h.get("url") or "").strip()
+            lines.append(f"- {title}: {snippet}" + (f" ({url})" if url else ""))
+        return "\n".join(lines)
+    lines = [f"I found live web results for: {query}"]
+    for h in hits[:5]:
+        title = (h.get("title") or "").strip()
+        snippet = (h.get("snippet") or "").strip()
+        url = (h.get("url") or "").strip()
+        lines.append(f"- {title}: {snippet}" + (f" ({url})" if url else ""))
+    return "\n".join(lines)
+
+
+def build_online_context_block(hits: list[dict[str, str]]) -> str:
+    if not hits:
+        return "No online snippets available."
+    lines = []
+    for i, h in enumerate(hits[:6], start=1):
+        title = (h.get("title") or "").strip()
+        snippet = (h.get("snippet") or "").strip()
+        url = (h.get("url") or "").strip()
+        lines.append(f"[{i}] title={title}\n[{i}] snippet={snippet}\n[{i}] url={url}")
+    return "\n".join(lines)
+
+
+def online_synthesis_mode() -> str:
+    mode = (os.environ.get("HATORI_ONLINE_SYNTHESIS_MODE") or "direct").strip().lower()
+    if mode in {"direct", "llm"}:
+        return mode
+    return "direct"
 
 
 FORBIDDEN_SCAFFOLD_MARKERS = [
@@ -570,48 +900,6 @@ def is_daily_planning_request(text: str) -> bool:
     has_today_marker = bool(re.search(r"\b(ma|mai|today)\b", lowered))
     has_task_marker = bool(re.search(r"\b(feladat\w*|tasks?|priorit(?:y|ies)|priorit[aá]s\w*)\b", lowered))
     return has_today_marker and has_task_marker
-
-
-def is_greeting_only(text: str, language_code: str) -> bool:
-    lowered = text.strip().lower()
-    if not lowered:
-        return False
-
-    non_greeting_intents = [
-        "segíts",
-        "segits",
-        "kérlek",
-        "kerlek",
-        "please",
-        "help",
-        "plan",
-        "terv",
-        "írj",
-        "irj",
-        "compose",
-        "summarize",
-        "search",
-        "kutatás",
-        "kutatas",
-        "döntés",
-        "dontes",
-    ]
-    if any(x in lowered for x in non_greeting_intents):
-        return False
-
-    hu_greetings = ["szia", "jó reggelt", "jo reggelt", "szép reggelt", "szep reggelt", "helló", "hello"]
-    en_greetings = ["hi", "hello", "good morning", "good afternoon", "good evening", "hey"]
-    if language_code == "hu":
-        return any(g in lowered for g in hu_greetings)
-    if language_code == "en":
-        return any(g in lowered for g in en_greetings)
-    return False
-
-
-def greeting_clarifying_answer(language_code: str) -> str:
-    if language_code == "hu":
-        return "Szia! Miben segíthetek pontosan ma? (pl. napi terv, e-mail, döntés, kutatás)"
-    return "Hi! What do you want help with today? (for example: daily plan, email, decision, research)"
 
 
 def _extract_json_object(raw: str) -> dict | None:
@@ -923,8 +1211,15 @@ def chat(chat_id: str | None = None, new: int = 0):
         return RedirectResponse(url=f"/chat?chat_id={cid}", status_code=303)
 
     chat_id = (chat_id or "").strip()
-    rows = load_chat_rows(chat_id=chat_id, limit=300)
-    recent_chats = load_recent_chats(limit=40)
+    db_error = ""
+    try:
+        rows = load_chat_rows(chat_id=chat_id, limit=300)
+        recent_chats = load_recent_chats(limit=40)
+    except Exception as exc:
+        # Degrade gracefully when DB container is unavailable; keep chat UI reachable.
+        rows = []
+        recent_chats = []
+        db_error = str(exc)
 
     body = [f"<div class='chat-wrap'><aside class='chat-side'><div class='card'><h3>Chats</h3>"]
     body.append("<div class='chat-actions'><a href='/chat?new=1'><button type='button'>New chat</button></a></div>")
@@ -942,6 +1237,14 @@ def chat(chat_id: str | None = None, new: int = 0):
         )
     body.append("</div></aside><section class='chat-main'><div class='card'>")
     body.append(f"<h2>Chat ({_h(chat_id)})</h2>")
+    if db_error:
+        body.append(
+            "<div class='msg-user'>"
+            "<strong>Database unavailable.</strong> "
+            "History is temporarily unavailable, but the UI is still running."
+            f"<div class='ts'>{_h(db_error)}</div>"
+            "</div>"
+        )
     body.append(
         "<div class='chat-actions'>"
         "<a href='/chat?new=1'><button type='button'>New chat</button></a>"
@@ -952,6 +1255,7 @@ def chat(chat_id: str | None = None, new: int = 0):
         "</div>"
     )
 
+    body.append("<div id='chat_messages'>")
     if not rows:
         body.append("<p>No messages yet.</p>")
     for row in rows:
@@ -997,21 +1301,48 @@ def chat(chat_id: str | None = None, new: int = 0):
         msg += f"<details><summary>details</summary><pre>{meta_str}</pre></details>"
         msg += "</div>"
         body.append(msg)
+    body.append("</div>")
     body.append(
         "<h3>Send message</h3>"
         "<form id='chat_form' method='post' action='/chat/send'>"
         f"<input type='hidden' name='chat_id' value='{_h(chat_id)}'>"
         "<textarea id='message_box' name='message' rows='3' placeholder='Type your message'></textarea>"
-        "<button type='submit'>Send</button>"
+        "<button id='chat_send_btn' type='submit'>Send</button>"
         "</form>"
         "<script>"
         "(function(){"
         "var form=document.getElementById('chat_form');"
         "var box=document.getElementById('message_box');"
-        "if(!form||!box){return;}"
+        "var btn=document.getElementById('chat_send_btn');"
+        "if(!form||!box||!btn){return;}"
+        "var sending=false;"
+        "function setSending(v){sending=v;btn.disabled=v;btn.textContent=v?'Sending...':'Send';}"
+        "function patchMessagesFromHtml(html){"
+        "var parser=new DOMParser();"
+        "var doc=parser.parseFromString(html,'text/html');"
+        "var next=doc.getElementById('chat_messages');"
+        "var current=document.getElementById('chat_messages');"
+        "if(next&&current){current.outerHTML=next.outerHTML;}"
+        "}"
+        "async function sendAsync(){"
+        "if(sending){return;}"
+        "if(!box.value.trim()){return;}"
+        "setSending(true);"
+        "try{"
+        "var resp=await fetch(form.action,{method:'POST',body:new FormData(form),credentials:'same-origin'});"
+        "var html=await resp.text();"
+        "patchMessagesFromHtml(html);"
+        "box.value='';"
+        "}catch(_e){"
+        "form.submit();"
+        "}finally{"
+        "setSending(false);"
+        "}"
+        "}"
         "box.addEventListener('keydown',function(ev){"
-        "if(ev.key==='Enter' && !ev.shiftKey){ev.preventDefault(); form.requestSubmit();}"
+        "if(ev.key==='Enter' && !ev.shiftKey){ev.preventDefault(); sendAsync();}"
         "});"
+        "form.addEventListener('submit',function(ev){ev.preventDefault(); sendAsync();});"
         "})();"
         "</script>"
         "</div></section></div>"
@@ -1034,22 +1365,6 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
 
     user_id = insert_interaction("user", text_raw, {"source": "ui", "chat_id": chat_id})
 
-    if is_greeting_only(text_raw, language_code):
-        answer = render_chat_default_output(greeting_clarifying_answer(language_code), language_code, text_raw, sources=source_lines)
-        insert_interaction(
-            "assistant",
-            answer,
-            {
-                "source": "ui",
-                "chat_id": chat_id,
-                "model_adapter": "greeting-shortcut",
-                "generation_path": "greeting_shortcut",
-                "language": language_code,
-                "related_user_interaction_id": user_id,
-            },
-        )
-        return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
-
     followup_answer = resolve_followup_from_history(text_raw, history_turns, language_code)
     if followup_answer:
         answer = render_chat_default_output(followup_answer, language_code, text_raw, sources=source_lines)
@@ -1067,8 +1382,75 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         )
         return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
 
+    conn_state = connectivity_state()
+    web_hits: list[dict[str, str]] = []
+    needs_online_search = should_route_online_search(text_raw, conn_state)
+    if needs_online_search and conn_state == "OFFLINE":
+        answer = render_chat_default_output(localized_no_internet_message(language_code), language_code, text_raw, sources=source_lines)
+        insert_interaction(
+            "assistant",
+            answer,
+            {
+                "source": "ui",
+                "chat_id": chat_id,
+                "model_adapter": "connectivity-gate",
+                "generation_path": "online_search_offline_gate",
+                "language": language_code,
+                "related_user_interaction_id": user_id,
+                "connectivity_state": conn_state,
+            },
+        )
+        return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+    if needs_online_search and conn_state != "OFFLINE":
+        if is_weather_request(text_raw):
+            try:
+                weather = fetch_live_weather(_extract_weather_location(text_raw))
+            except Exception:
+                weather = {}
+            if weather:
+                answer = render_chat_default_output(render_live_weather_answer(language_code, weather), language_code, text_raw, sources=source_lines)
+                insert_interaction(
+                    "assistant",
+                    answer,
+                    {
+                        "source": "ui",
+                        "chat_id": chat_id,
+                        "model_adapter": "online-weather",
+                        "generation_path": "online_weather_live",
+                        "language": language_code,
+                        "related_user_interaction_id": user_id,
+                        "connectivity_state": conn_state,
+                        "online_search_used": True,
+                    },
+                )
+                return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+        try:
+            web_hits = online_search_snippets(text_raw, limit=5)
+        except Exception:
+            web_hits = []
+        if web_hits and online_synthesis_mode() == "direct":
+            answer = render_chat_default_output(render_online_snippets_answer(language_code, text_raw, web_hits), language_code, text_raw, sources=source_lines)
+            insert_interaction(
+                "assistant",
+                answer,
+                {
+                    "source": "ui",
+                    "chat_id": chat_id,
+                    "model_adapter": "online-direct",
+                    "generation_path": "online_search_direct",
+                    "language": language_code,
+                    "related_user_interaction_id": user_id,
+                    "connectivity_state": conn_state,
+                    "online_search_used": True,
+                },
+            )
+            return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+
     is_planning = is_daily_planning_request(text_raw)
-    model_task = "plan_write" if is_planning else "reply_write"
+    if is_planning:
+        model_task = "plan_write"
+    else:
+        model_task = "reply_write"
     model, adapter_error = select_chat_model_adapter(task=model_task)
     if is_planning:
         if adapter_error:
@@ -1173,15 +1555,24 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
     drafter_pack = build_drafter_context_pack(text_raw, language_code, history_turns, pks_rows, evidence_rows)
     task_prompt = build_task_prompt(
         user_text=text_raw,
-        connectivity="OFFLINE",
+        connectivity=conn_state,
         retrieved_context={
             "source": "ui.chat",
             "recent_history": [{"role": (x.get("role") or ""), "content": (x.get("content") or "")[:220]} for x in history_turns[-6:]],
             "pks_approved": summarize_pks_for_model(pks_rows, limit=4),
             "local_evidence_top": summarize_evidence_for_model(evidence_rows, limit=4),
             "drafter_pack": drafter_pack,
+            "online_search_top": web_hits,
         },
     )
+    if needs_online_search:
+        task_prompt += (
+            "\nOnline retrieval requirements:\n"
+            "- Use provided online snippets as primary fresh context.\n"
+            "- If snippets conflict, state uncertainty briefly.\n"
+            "- Add source URLs at the end under 'Sources:' as a flat list.\n"
+            f"- Online snippets:\n{build_online_context_block(web_hits)}\n"
+        )
     task_prompt += (
         "\nChat generation requirements:\n"
         f"- Respond in {language_name(language_code)}.\n"
@@ -1190,14 +1581,35 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         "- Answer the user request directly.\n"
     )
     if adapter_error:
-        raw_answer = localized_model_error(language_code, adapter_error)
+        if needs_online_search and web_hits:
+            raw_answer = render_online_snippets_answer(language_code, text_raw, web_hits)
+        elif needs_online_search:
+            raw_answer = localized_no_internet_message(language_code)
+        elif is_weather_request(text_raw):
+            raw_answer = localized_weather_offline_fallback(language_code, text_raw)
+        else:
+            raw_answer = localized_model_error(language_code, adapter_error)
     else:
         try:
             raw_answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()
         except Exception as exc:
-            raw_answer = localized_model_error(language_code, str(exc))
+            if needs_online_search and web_hits:
+                raw_answer = render_online_snippets_answer(language_code, text_raw, web_hits)
+            elif needs_online_search:
+                raw_answer = localized_no_internet_message(language_code)
+            elif is_weather_request(text_raw):
+                raw_answer = localized_weather_offline_fallback(language_code, text_raw)
+            else:
+                raw_answer = localized_model_error(language_code, str(exc))
     if not raw_answer:
-        raw_answer = localized_model_error(language_code, "empty response")
+        if needs_online_search and web_hits:
+            raw_answer = render_online_snippets_answer(language_code, text_raw, web_hits)
+        elif needs_online_search:
+            raw_answer = localized_no_internet_message(language_code)
+        elif is_weather_request(text_raw):
+            raw_answer = localized_weather_offline_fallback(language_code, text_raw)
+        else:
+            raw_answer = localized_model_error(language_code, "empty response")
 
     clean_answer, removed_ratio = _sanitize_with_stats(raw_answer)
     if model is not None and _needs_repair(raw_answer, clean_answer, removed_ratio):
@@ -1247,6 +1659,8 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             "generation_path": "standard",
             "language": language_code,
             "related_user_interaction_id": user_id,
+            "connectivity_state": conn_state,
+            "online_search_used": bool(web_hits),
         },
     )
     return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)

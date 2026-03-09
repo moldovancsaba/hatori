@@ -721,6 +721,8 @@ def health() -> dict[str, Any]:
     runtime_status = _runtime_status()
     task_model_routing = _task_routing_status()
     return {
+        "ok": True,
+        "statusMessage": "online",
         "status": "ok",
         "version": VERSION_FILE.read_text(encoding="utf-8").strip(),
         "ui_port": int((os.environ.get("UI_PORT") or "23571").strip()),

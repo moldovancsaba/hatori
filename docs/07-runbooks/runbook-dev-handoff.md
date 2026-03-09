@@ -13,12 +13,17 @@ This runbook is for onboarding a developer/developer-agent to the {hatori} repo.
   - UI: `23571` (localhost)
   - API: `23572` (localhost)
 - Continuation notes: `docs/07-runbooks/braindump-next-agent.md`
+- Latest 70-protocol entry:
+  - `mvp-factory-control#337` (`{hatori}: Fix MLX runtime down in health/menu status`)
+  - board status: `In Progress (NOW)`
+  - start note: https://github.com/moldovancsaba/mvp-factory-control/issues/337#issuecomment-3986713125
 
 ## Repo
 - Path (local): `/Users/moldovancsaba/Projects/hatori`
 
 ## Canonical policy & prompts
 - Charter (highest authority): `docs/01-charters/hatori-charter-v3.md`
+- Project management SSOT workflow: `docs/PROJECT_MANAGEMENT.md`
 - Prompt pack: `docs/09-prompts/`
   - `builder-system.md`
   - `builder-task-template.md`
@@ -38,6 +43,10 @@ colima start
 docker context use colima
 docker ps
 ```
+
+Note:
+- `tools/scripts/hatori_service.sh` no longer blocks API/UI startup on Docker bootstrap.
+- If Colima is down at launch, API/UI still come up and DB bootstrap retries in background.
 
 ## Bring up {hatori} DB container
 ```bash

@@ -413,6 +413,8 @@ def _adapter_from_backend(backend: str, model: str) -> ModelAdapter:
     if b == "ollama":
         return OllamaAdapter(model=model or None)
     if b == "mlx":
+        if (os.environ.get("HATORI_DISABLE_MLX") or "").strip() == "1":
+            raise RuntimeError("MLX disabled by HATORI_DISABLE_MLX=1")
         return MlxAdapter(model=model or None)
     if b == "llamacpp":
         return LlamaCppAdapter()

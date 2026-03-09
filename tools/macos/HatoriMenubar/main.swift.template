@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import CoreText
 
-final class MenuApp: NSObject, NSApplicationDelegate {
+final class HatoriMenubarApp: NSObject, NSApplicationDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private let productItem = NSMenuItem(title: "{hatori} v__APP_VERSION__", action: nil, keyEquivalent: "")
@@ -85,7 +85,7 @@ final class MenuApp: NSObject, NSApplicationDelegate {
         guard let button = statusItem.button else { return }
         let bundled = Bundle.main.url(forResource: "MaterialSymbolsOutlined", withExtension: "ttf")
         let fontURL = bundled ?? URL(fileURLWithPath: repoRoot)
-            .appendingPathComponent("tools/macos/HatoriMenu/MaterialSymbolsOutlined.ttf")
+            .appendingPathComponent("tools/macos/HatoriMenubar/MaterialSymbolsOutlined.ttf")
         if FileManager.default.fileExists(atPath: fontURL.path) {
             CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)
         }
@@ -247,7 +247,7 @@ final class MenuApp: NSObject, NSApplicationDelegate {
     }
 
     @objc private func stopService() {
-        runShell("make stop")
+        runShell("launchctl unload \"$HOME/Library/LaunchAgents/com.hatori.plist\"")
     }
 
     @objc private func installService() {
@@ -267,7 +267,7 @@ final class MenuApp: NSObject, NSApplicationDelegate {
 }
 
 let app = NSApplication.shared
-let delegate = MenuApp()
+let delegate = HatoriMenubarApp()
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
 app.run()

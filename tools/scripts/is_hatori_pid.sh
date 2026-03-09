@@ -8,6 +8,13 @@ fi
 
 pid="$1"
 kind="$2"
+env_file="${HOME}/.config/hatori/hatori.env"
+if [ -f "$env_file" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+fi
 cmd="$(ps -p "$pid" -o command= 2>/dev/null | sed 's/^[[:space:]]*//' || true)"
 [ -n "$cmd" ] || exit 1
 

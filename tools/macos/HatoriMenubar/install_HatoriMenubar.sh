@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-APP_NAME="HatoriMenu"
+APP_NAME="HatoriMenubar"
 APP_DIR="$HOME/Applications/${APP_NAME}.app"
 BIN_DIR="$APP_DIR/Contents/MacOS"
 RES_DIR="$APP_DIR/Contents/Resources"
@@ -11,10 +11,11 @@ APP_VERSION="$(cat "$REPO_ROOT/VERSION" | tr -d "[:space:]")"
 
 mkdir -p "$BIN_DIR" "$RES_DIR"
 
-sed -e "s#__REPO_ROOT__#${REPO_ROOT}#g" -e "s#__APP_VERSION__#${APP_VERSION}#g" "$REPO_ROOT/tools/macos/HatoriMenu/main.swift.template" > "$TMP_SWIFT"
+sed -e "s#__REPO_ROOT__#${REPO_ROOT}#g" -e "s#__APP_VERSION__#${APP_VERSION}#g" "$REPO_ROOT/tools/macos/HatoriMenubar/main.swift.template" > "$TMP_SWIFT"
 
 swiftc "$TMP_SWIFT" -o "$BIN_DIR/${APP_NAME}" -framework AppKit
-cp "$REPO_ROOT/tools/macos/HatoriMenu/MaterialSymbolsOutlined.ttf" "$RES_DIR/MaterialSymbolsOutlined.ttf"
+cp "$REPO_ROOT/tools/macos/HatoriMenubar/MaterialSymbolsOutlined.ttf" "$RES_DIR/MaterialSymbolsOutlined.ttf"
+cp "$REPO_ROOT/tools/macos/HatoriMenubar/AppIcon.icns" "$RES_DIR/AppIcon.icns"
 
 cat > "$APP_DIR/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -31,6 +32,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
   <string>${APP_VERSION}</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>LSUIElement</key>
   <true/>
   <key>NSHighResolutionCapable</key>
@@ -42,5 +45,13 @@ PLIST
 chmod +x "$BIN_DIR/${APP_NAME}"
 
 echo "Installed: $APP_DIR (version ${APP_VERSION})"
+
+# Automate Login Item insertion safely
+osascript -e "tell application \"System Events\"
+  if not (exists login item \"${APP_NAME}\") then
+    make login item at end with properties {path:\"${APP_DIR}\", hidden:false}
+  end if
+end tell" >/dev/null 2>&1 || true
+
+echo "Auto-launch enabled."
 echo "Run: open \"$APP_DIR\""
-echo "Add auto-launch: System Settings -> General -> Login Items -> '+' -> $APP_DIR"
