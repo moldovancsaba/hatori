@@ -36,6 +36,13 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 EXPORT_DIR = ROOT_DIR / "artefacts" / "exports"
 UPLOAD_DIR = ROOT_DIR / "artefacts" / "uploads"
 
+LOCALES_PATH = Path(__file__).resolve().parent / "locales.json"
+try:
+    with open(LOCALES_PATH, "r", encoding="utf-8") as f:
+        _LOCALES = json.load(f)
+except Exception:
+    _LOCALES = {}
+
 app = FastAPI()
 
 CSS = (
@@ -365,17 +372,13 @@ def greeting_clarifying_answer(language_code: str) -> str:
 
 
 def localized_model_error(code: str, err: str) -> str:
-    base = "Local model is temporarily unavailable. Please retry in a few seconds. If ollama not running, try 'brew services start ollama'."
-    if code == "ro":
-        base = "Modelul local este temporar indisponibil. Incearca din nou in cateva secunde sau porneste ollama cu 'brew services start ollama'."
-    elif code == "hu":
-        base = "A helyi modell atmenetileg nem elerheto. Probald ujra nehany masodperc mulva, vagy inditsd el az ollamat: 'brew services start ollama'."
-    elif code == "es":
-        base = "El modelo local no esta disponible temporalmente. Intentalo de nuevo en unos segundos, ollama not running (brew services start ollama)."
-    elif code == "fr":
-        base = "Le modele local est temporairement indisponible. Reessayez dans quelques secondes (brew services start ollama)."
-    elif code == "de":
-        base = "Das lokale Modell ist vorubergehend nicht verfugbar. Bitte in ein paar Sekunden erneut versuchen (brew services start ollama)."
+    start_cmd = os.environ.get("HATORI_OLLAMA_START_CMD", "starting your local inference engine")
+    locale_dict = _LOCALES.get(code, _LOCALES.get("en", {}))
+    base_template = locale_dict.get(
+        "model_error",
+        "Local model is temporarily unavailable. Please retry in a few seconds. If the model is not running, try '{start_cmd}'."
+    )
+    base = base_template.replace("{start_cmd}", start_cmd)
     return f"{base} (Model Error: {err})"
 
 

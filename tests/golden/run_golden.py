@@ -881,7 +881,7 @@ def test_74_chat_ollama_down_returns_clean_error_not_stub() -> None:
         else:
             os.environ["HATORI_OLLAMA_URL"] = old_url
     lowered = out.lower()
-    assert_true("ollama not running" in lowered or "brew services start ollama" in lowered, "ollama-down path should show clean startup guidance")
+    assert_true("starting your local inference engine" in lowered or "inditsd el" in lowered, "ollama-down path should show clean startup guidance")
     assert_true("[null-adapter:" not in lowered and "nulladapter" not in lowered and "fingerprint" not in lowered, "ollama-down path must not produce stub output")
 
 
