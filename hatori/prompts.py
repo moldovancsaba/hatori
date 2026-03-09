@@ -32,13 +32,18 @@ def build_system_prompt() -> str:
     )
 
 
-def build_task_prompt(user_text: str, connectivity: str, retrieved_context: dict) -> str:
+def build_task_prompt(user_text: str, connectivity: str, retrieved_context: dict, system_hints: list[str] | None = None) -> str:
     template = _strip_fences(_read_text(TASK_TEMPLATE_PATH))
     context_json = json.dumps(retrieved_context, ensure_ascii=False, indent=2)
+    hints_text = ""
+    if system_hints:
+        hints_text = "System hints for this request:\n" + "\n".join(f"- {h}" for h in system_hints) + "\n\n"
+    
     return (
         f"Canonical task template source: {TASK_TEMPLATE_PATH.as_posix()}\n\n"
         f"{template}\n\n"
         f"Connectivity: {connectivity}\n"
+        f"{hints_text}"
         f"User request:\n{user_text}\n\n"
         f"Retrieved context (JSON):\n{context_json}\n"
     )

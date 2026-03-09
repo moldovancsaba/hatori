@@ -47,6 +47,7 @@ final class HatoriMenubarApp: NSObject, NSApplicationDelegate {
         menu.addItem(item("Open UI /upload", #selector(openUIUpload)))
         menu.addItem(item("Open UI /search", #selector(openUISearch)))
         menu.addItem(item("Open API Health", #selector(openAPIHealth)))
+        menu.addItem(item("Documentation", #selector(openDocumentation)))
         menu.addItem(item("Reply Smoke", #selector(runReplySmoke)))
 
         menu.addItem(NSMenuItem.separator())
@@ -236,6 +237,10 @@ final class HatoriMenubarApp: NSObject, NSApplicationDelegate {
 
     @objc private func openAPIHealth() {
         NSWorkspace.shared.open(URL(string: "http://127.0.0.1:\(apiPort)/v1/health")!)
+    }
+
+    @objc private func openDocumentation() {
+        NSWorkspace.shared.open(URL(string: "https://github.com/moldovancsaba/hatori#readme")!)
     }
 
     @objc private func runReplySmoke() {

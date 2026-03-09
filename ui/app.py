@@ -640,53 +640,11 @@ def fetch_live_weather(location: str) -> dict[str, str]:
     }
 
 
-def render_live_weather_answer(code: str, weather: dict[str, str]) -> str:
-    loc = weather.get("location") or "the requested location"
-    temp = weather.get("temp_c") or "?"
-    feels = weather.get("feels_c") or "?"
-    hum = weather.get("humidity") or "?"
-    wind = weather.get("wind_kmph") or "?"
-    desc = weather.get("desc") or ""
-    google_link = "https://www.google.com/search?q=" + urllib.parse.quote_plus(f"{loc} weather")
-    if code == "hu":
-        condition = f", {desc.lower()}" if desc else ""
-        return (
-            f"{loc}-on most {temp} fok van{condition}. "
-            f"(Hőérzet: {feels} fok, szél: {wind} km/h, páratartalom: {hum}%). "
-            f"Google-link: {google_link}"
-        )
-    tail = f", condition: {desc}" if desc else ""
-    return (
-        f"Right now in {loc}: {temp} C{tail}. "
-        f"(Feels like {feels} C, wind {wind} km/h, humidity {hum}%). "
-        f"Google link: {google_link}"
-    )
 
 
-def localized_no_internet_message(code: str) -> str:
-    if code == "hu":
-        return "Most nincs internetkapcsolat az elo webes kereseshez. Ha engedelyezed az online modot es van halozat, azonnal tudok friss adatokat hozni."
-    return "Live internet search is not available right now. Enable online mode and ensure network access to fetch fresh web data."
 
 
-def render_online_snippets_answer(code: str, query: str, hits: list[dict[str, str]]) -> str:
-    if not hits:
-        return localized_no_internet_message(code)
-    if code == "hu":
-        lines = [f"Talaltam friss webes talalatokat erre: {query}"]
-        for h in hits[:5]:
-            title = (h.get("title") or "").strip()
-            snippet = (h.get("snippet") or "").strip()
-            url = (h.get("url") or "").strip()
-            lines.append(f"- {title}: {snippet}" + (f" ({url})" if url else ""))
-        return "\n".join(lines)
-    lines = [f"I found live web results for: {query}"]
-    for h in hits[:5]:
-        title = (h.get("title") or "").strip()
-        snippet = (h.get("snippet") or "").strip()
-        url = (h.get("url") or "").strip()
-        lines.append(f"- {title}: {snippet}" + (f" ({url})" if url else ""))
-    return "\n".join(lines)
+
 
 
 def build_online_context_block(hits: list[dict[str, str]]) -> str:
@@ -954,11 +912,11 @@ def _normalize_plan_struct(language_code: str, parsed: dict | None) -> tuple[str
     answer = ((parsed or {}).get("answer_body") or "").strip()
     assumptions = [str(x).strip() for x in ((parsed or {}).get("assumptions") or []) if str(x).strip()]
     actions = [str(x).strip() for x in ((parsed or {}).get("next_actions") or []) if str(x).strip()]
-    answer_has_bad_chars = any(ch in answer for ch in ["�", "±", "\x00"])
+    answer_has_bad_chars = any(ch in answer for ch in ["", "±", "\x00"])
     if answer_has_bad_chars or len(answer) < 20:
         answer = ""
-    assumptions = [x for x in assumptions if len(x) >= 12 and not any(ch in x for ch in ["�", "±", "\x00"])]
-    actions = [x for x in actions if len(x.strip()) >= 12 and not any(ch in x for ch in ["�", "±", "\x00"])]
+    assumptions = [x for x in assumptions if len(x) >= 12 and not any(ch in x for ch in ["", "±", "\x00"])]
+    actions = [x for x in actions if len(x.strip()) >= 12 and not any(ch in x for ch in ["", "±", "\x00"])]
 
     if not answer:
         if language_code == "hu":
@@ -1429,67 +1387,29 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
 
     conn_state = connectivity_state()
     web_hits: list[dict[str, str]] = []
+    system_hints: list[str] = []
+    weather_data: dict = {}
+    
     needs_online_search = should_route_online_search(text_raw, conn_state)
+    
     if needs_online_search and conn_state == "OFFLINE":
-        answer = render_chat_default_output(localized_no_internet_message(language_code), language_code, text_raw, sources=source_lines)
-        insert_interaction(
-            "assistant",
-            answer,
-            {
-                "source": "ui",
-                "chat_id": chat_id,
-                "model_adapter": "connectivity-gate",
-                "generation_path": "online_search_offline_gate",
-                "language": language_code,
-                "related_user_interaction_id": user_id,
-                "connectivity_state": conn_state,
-            },
-        )
-        return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+        system_hints.append("User requested an online search but the system is OFFLINE. Explain this limitation gracefully.")
     if needs_online_search and conn_state != "OFFLINE":
         if is_weather_request(text_raw):
             try:
-                weather = fetch_live_weather(_extract_weather_location(text_raw))
+                weather_data = fetch_live_weather(_extract_weather_location(text_raw))
             except Exception:
-                weather = {}
-            if weather:
-                answer = render_chat_default_output(render_live_weather_answer(language_code, weather), language_code, text_raw, sources=source_lines)
-                insert_interaction(
-                    "assistant",
-                    answer,
-                    {
-                        "source": "ui",
-                        "chat_id": chat_id,
-                        "model_adapter": "online-weather",
-                        "generation_path": "online_weather_live",
-                        "language": language_code,
-                        "related_user_interaction_id": user_id,
-                        "connectivity_state": conn_state,
-                        "online_search_used": True,
-                    },
-                )
-                return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+                weather_data = {}
+            if weather_data:
+                system_hints.append("Weather data found. Present it naturally as part of the conversation.")
+        
         try:
             web_hits = online_search_snippets(text_raw, limit=5)
         except Exception:
             web_hits = []
-        if web_hits and online_synthesis_mode() == "direct":
-            answer = render_chat_default_output(render_online_snippets_answer(language_code, text_raw, web_hits), language_code, text_raw, sources=source_lines)
-            insert_interaction(
-                "assistant",
-                answer,
-                {
-                    "source": "ui",
-                    "chat_id": chat_id,
-                    "model_adapter": "online-direct",
-                    "generation_path": "online_search_direct",
-                    "language": language_code,
-                    "related_user_interaction_id": user_id,
-                    "connectivity_state": conn_state,
-                    "online_search_used": True,
-                },
-            )
-            return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+        
+        if web_hits:
+            system_hints.append("Online search snippets provided. Use them to answer the user request directly.")
 
     is_planning = is_daily_planning_request(text_raw)
     if is_planning:
@@ -1601,6 +1521,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
     task_prompt = build_task_prompt(
         user_text=text_raw,
         connectivity=conn_state,
+        system_hints=system_hints,
         retrieved_context={
             "source": "ui.chat",
             "recent_history": [{"role": (x.get("role") or ""), "content": (x.get("content") or "")[:220]} for x in history_turns[-6:]],
@@ -1608,6 +1529,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             "local_evidence_top": summarize_evidence_for_model(evidence_rows, limit=4),
             "drafter_pack": drafter_pack,
             "online_search_top": web_hits,
+            "live_weather": weather_data,
         },
     )
     if needs_online_search:
@@ -1626,35 +1548,14 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         "- Answer the user request directly.\n"
     )
     if adapter_error:
-        if needs_online_search and web_hits:
-            raw_answer = render_online_snippets_answer(language_code, text_raw, web_hits)
-        elif needs_online_search:
-            raw_answer = localized_no_internet_message(language_code)
-        elif is_weather_request(text_raw):
-            raw_answer = localized_weather_offline_fallback(language_code, text_raw)
-        else:
-            raw_answer = localized_model_error(language_code, adapter_error)
+        raw_answer = localized_model_error(language_code, adapter_error)
     else:
         try:
             raw_answer = model.generate(system_prompt=system_prompt, task_prompt=task_prompt).strip()
         except Exception as exc:
-            if needs_online_search and web_hits:
-                raw_answer = render_online_snippets_answer(language_code, text_raw, web_hits)
-            elif needs_online_search:
-                raw_answer = localized_no_internet_message(language_code)
-            elif is_weather_request(text_raw):
-                raw_answer = localized_weather_offline_fallback(language_code, text_raw)
-            else:
-                raw_answer = localized_model_error(language_code, str(exc))
+            raw_answer = localized_model_error(language_code, str(exc))
     if not raw_answer:
-        if needs_online_search and web_hits:
-            raw_answer = render_online_snippets_answer(language_code, text_raw, web_hits)
-        elif needs_online_search:
-            raw_answer = localized_no_internet_message(language_code)
-        elif is_weather_request(text_raw):
-            raw_answer = localized_weather_offline_fallback(language_code, text_raw)
-        else:
-            raw_answer = localized_model_error(language_code, "empty response")
+        raw_answer = localized_model_error(language_code, "No response generated.")
 
     clean_answer, removed_ratio = _sanitize_with_stats(raw_answer)
     if model is not None and _needs_repair(raw_answer, clean_answer, removed_ratio):
