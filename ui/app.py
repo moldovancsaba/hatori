@@ -339,19 +339,44 @@ def language_name(code: str) -> str:
     }.get(code, "English")
 
 
+def is_greeting_only(text: str, language_code: str) -> bool:
+    clean = re.sub(r"[^\w\s]", "", (text or "").lower().strip())
+    words = clean.split()
+    if not words:
+        return False
+    if len(words) > 4:
+        return False
+    greetings = {"hi", "hello", "hey", "szia", "szió", "szép", "reggelt", "napot", "estét", "jó", "salut", "bonjour", "hallo", "hola"}
+    return all(w in greetings for w in words)
+
+
+def greeting_clarifying_answer(language_code: str) -> str:
+    if language_code == "hu":
+        return "Szia! Miben segíthetek pontosan ma?"
+    if language_code == "ro":
+        return "Salut! Cu ce te pot ajuta exact astăzi?"
+    if language_code == "es":
+        return "¡Hola! ¿En qué puedo ayudarte exactamente hoy?"
+    if language_code == "fr":
+        return "Bonjour ! Comment puis-je vous aider exactement aujourd'hui ?"
+    if language_code == "de":
+        return "Hallo! Wobei genau kann ich dir heute helfen?"
+    return "Hello! How exactly can I help you today?"
+
+
 def localized_model_error(code: str, err: str) -> str:
-    _ = err
+    base = "Local model is temporarily unavailable. Please retry in a few seconds. If ollama not running, try 'brew services start ollama'."
     if code == "ro":
-        return "Modelul local este temporar indisponibil. Incearca din nou in cateva secunde."
-    if code == "hu":
-        return "A helyi modell atmenetileg nem elerheto. Probald ujra nehany masodperc mulva."
-    if code == "es":
-        return "El modelo local no esta disponible temporalmente. Intentalo de nuevo en unos segundos."
-    if code == "fr":
-        return "Le modele local est temporairement indisponible. Reessayez dans quelques secondes."
-    if code == "de":
-        return "Das lokale Modell ist vorubergehend nicht verfugbar. Bitte in ein paar Sekunden erneut versuchen."
-    return "Local model is temporarily unavailable. Please retry in a few seconds."
+        base = "Modelul local este temporar indisponibil. Incearca din nou in cateva secunde sau porneste ollama cu 'brew services start ollama'."
+    elif code == "hu":
+        base = "A helyi modell atmenetileg nem elerheto. Probald ujra nehany masodperc mulva, vagy inditsd el az ollamat: 'brew services start ollama'."
+    elif code == "es":
+        base = "El modelo local no esta disponible temporalmente. Intentalo de nuevo en unos segundos, ollama not running (brew services start ollama)."
+    elif code == "fr":
+        base = "Le modele local est temporairement indisponible. Reessayez dans quelques secondes (brew services start ollama)."
+    elif code == "de":
+        base = "Das lokale Modell ist vorubergehend nicht verfugbar. Bitte in ein paar Sekunden erneut versuchen (brew services start ollama)."
+    return f"{base} (Model Error: {err})"
 
 
 def is_weather_request(text: str) -> bool:
@@ -1376,6 +1401,23 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
                 "chat_id": chat_id,
                 "model_adapter": "history-shortcut",
                 "generation_path": "history_shortcut",
+                "language": language_code,
+                "related_user_interaction_id": user_id,
+            },
+        )
+        return RedirectResponse(url=f"/chat?chat_id={chat_id}", status_code=303)
+
+    if is_greeting_only(text_raw, language_code):
+        greeting_text = greeting_clarifying_answer(language_code)
+        answer = render_chat_default_output(greeting_text, language_code, text_raw, sources=source_lines)
+        insert_interaction(
+            "assistant",
+            answer,
+            {
+                "source": "ui",
+                "chat_id": chat_id,
+                "model_adapter": "greeting-shortcut",
+                "generation_path": "greeting_shortcut",
                 "language": language_code,
                 "related_user_interaction_id": user_id,
             },
