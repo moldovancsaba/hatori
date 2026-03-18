@@ -11,6 +11,7 @@ reset:
 	./tools/scripts/db_reset.sh
 
 test:
+	$(MAKE) reset
 	./tools/scripts/db_lock_contention_test.sh
 	./tools/scripts/self_test.sh
 	./tools/scripts/dod_gate.sh

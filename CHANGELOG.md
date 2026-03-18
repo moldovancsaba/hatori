@@ -8,6 +8,9 @@ All notable changes to this project are tracked here.
 - **SSOT verification and closure:** #337 (MLX health/menu status) and #339 (startup hardening + port defaults) verified against acceptance criteria; Done evidence posted on mvp-factory-control. #427 (API response quality) progress: test_94b_api_respond_planning_hu_quality PASS; progress note posted.
 - `docs/HANDOVER.md`: Session entries for 2026-03-18 (#337 verify/close, #339 verify/close, #427 progress). Board status for #337/#339 to Done requires manual move (script GraphQL option-id limitation).
 
+### Fixed
+- **make test** now runs `make reset` first so the DB schema (including `embeddings`) is applied before golden tests; fixes "relation \"embeddings\" does not exist" when running `make test` without a prior reset.
+
 ## [0.7.7] - 2026-03-16
 
 ### Fixed

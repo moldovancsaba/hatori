@@ -19,6 +19,26 @@
 
 ---
 
+## 2026-03-18 - AI Developer (make test: ensure reset before golden tests)
+- Objective: Fix "relation embeddings does not exist" so `make test` is reliable.
+
+### What changed
+- **Makefile**: `test` target now runs `$(MAKE) reset` first so migrations (including `embeddings` table) are applied before db_lock_contention_test, self_test, dod_gate, and run_golden.py.
+- **CHANGELOG.md** [0.7.8]: Added Fixed entry for make test reset.
+
+### Files touched
+- `Makefile`
+- `CHANGELOG.md`
+- `docs/HANDOVER.md`
+
+### Validation
+- `make test`: Reset runs first; golden suite runs; no "embeddings does not exist" error. Three planning tests still fail (test_62, test_63, test_89 — content assertions on planning output; may be model/env dependent).
+
+### Next
+- Optional: relax or fix test_62, test_63, test_89 if they are intended to be stable in CI.
+
+---
+
 ## 2026-03-18 - AI Developer (#337: Verify and close — MLX health/menu status)
 - Objective: Verify #337 acceptance criteria, run gates, post evidence, move to Done, update HANDOVER.
 
