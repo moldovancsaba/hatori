@@ -1,5 +1,21 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (#339: Continue In Progress — startup hardening + MLX)
+- Objective: Complete #339 acceptance verification, document mapping, post Done evidence.
+
+### What changed
+- **docs/07-runbooks/runbook-local.md:** Added SSOT #339 subsection mapping all five acceptance criteria to implementation (hatori_service.sh, stop_hatori.sh, api/app.py _runtime_status, hatori_mlx_mode.sh, runbook/menu-user-guide).
+- **Evidence:** Posted completion comment on mvp-factory-control#339 with criterion-by-criterion verification and runbook reference.
+
+### Validation
+- Scripts verified: ENV_FILE sourced, UI_PORT/API_PORT from env in service and stop_hatori.sh. Service status shows com.hatori running.
+
+### SSOT
+- #339: Completion evidence posted on issue. Board move to Done via script failed (GraphQL option-id); **PO to move card to Done manually** on MVP Factory Board.
+- No further implementation required; all criteria satisfied in tree.
+
+---
+
 ## 2026-03-18 - AI Developer (CI fix: NameError Any in ui/app.py)
 - Objective: Fix `make test` failure in CI: `NameError: name 'Any' is not defined` when importing `ui.app`.
 

@@ -105,6 +105,7 @@ start_one() {
 
 if [ "${HATORI_SKIP_OLLAMA_ENSURE:-0}" != "1" ]; then
   "$ROOT/tools/scripts/ensure_ollama.sh" || true
+  "$ROOT/tools/scripts/ensure_hatori_models.sh" || true
 fi
 
 api_backoff=1

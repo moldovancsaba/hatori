@@ -6,6 +6,7 @@ All notable changes to this project are tracked here.
 
 ### Fixed
 - **CI import error:** `ui/app.py`: Added `from __future__ import annotations` so type hints like `dict[str, Any]` are deferred; fixes `NameError: name 'Any' is not defined` when running golden tests (e.g. `make test` in CI).
+- **Chat "unsafe model output removed":** When the repair step fails (e.g. model error or empty repair), the UI now keeps the sanitized original reply if it is safe (length ≥ 20, no forbidden markers) instead of always showing the generic error. Repair is only triggered when >50% of output was removed (was 30%) to reduce false triggers on normal replies with code blocks or lists.
 
 ### Added
 - **Feedback→behavior:** Recent learning_events (last 15) are summarized and injected into the chat/API task prompt as `recent_feedback_summary` (counts by kind, last negative comment, last positive note). Enables the model to adapt to user feedback without automatic PKS promotion.

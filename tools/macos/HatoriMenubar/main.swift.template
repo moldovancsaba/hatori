@@ -135,13 +135,24 @@ final class HatoriMenubarApp: NSObject, NSApplicationDelegate {
         guard let data else { return "\(lane): unknown" }
         let backend = (data["backend"] as? String) ?? "none"
         let model = (data["model"] as? String) ?? ""
-        let fallback = (data["fallback_used"] as? Bool) == true ? " (fallback)" : ""
+        let modelPrimary = (data["model_primary"] as? String) ?? model
+        let modelLabel = (data["model_label"] as? String) ?? ""
+        let fallbackUsed = (data["fallback_used"] as? Bool) == true
+        let usingFallback = fallbackUsed && !model.isEmpty && model != modelPrimary ? " using \(model)" : ""
+        let fallback = fallbackUsed && usingFallback.isEmpty ? " (fallback)" : ""
         let ok = (data["ok"] as? Bool) == true
         let state = ok ? "ok" : "down"
         if model.isEmpty {
             return "\(lane): \(backend) [\(state)]\(fallback)"
         }
-        return "\(lane): \(backend)/\(model) [\(state)]\(fallback)"
+        let displayModel = modelPrimary.isEmpty ? model : modelPrimary
+        let modelPart: String
+        if !modelLabel.isEmpty {
+            modelPart = "\(modelLabel) (\(displayModel))" + usingFallback
+        } else {
+            modelPart = "\(backend)/\(model)" + usingFallback
+        }
+        return "\(lane): \(modelPart) [\(state)]\(fallback)"
     }
 
     private func trunc(_ value: String, limit: Int = 80) -> String {

@@ -107,6 +107,7 @@ Response `200`:
 }
 ```
 - `runtime_status.mlx` / `runtime_status.ollama`: each has `ok`, optional `configured` (false = not configured / disabled; menu shows “n/a” instead of “down”), optional `model`, `error`.
+- `task_model_routing.writer` / `drafter` / `judge`: each lane has `task`, `ok`, `backend`, `model` (model in use), `model_primary` (configured primary), optional `model_label` (human-readable for primary, e.g. “IBM Granite Nano — lightest”), `fallback_used`, `error`, `route`. Menu shows primary/label so drafter appears as Granite even when fallback (e.g. gemma) is in use.
 
 ## 8.2 POST /v1/agent/respond
 

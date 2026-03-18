@@ -145,6 +145,13 @@ def _runtime_status() -> dict[str, Any]:
     }
 
 
+# Human-readable labels for known model IDs (menu / health display).
+_MODEL_LABELS: dict[str, str] = {
+    "granite4:350m": "IBM Granite Nano — lightest",
+    "ibm/granite4:350m": "IBM Granite Nano — lightest",
+}
+
+
 def _task_routing_status() -> dict[str, Any]:
     lane_map = {
         "writer": "reply_write",
@@ -157,12 +164,19 @@ def _task_routing_status() -> dict[str, Any]:
         backend_used = (meta or {}).get("backend_used") if isinstance(meta, dict) else None
         model_used = (meta or {}).get("model_used") if isinstance(meta, dict) else None
         route = (meta or {}).get("route") if isinstance(meta, dict) else None
+        model = model_used or (getattr(adapter, "model", "") if adapter is not None else "")
+        # Primary = configured route model; label shows intended drafter (e.g. Granite) even when fallback is in use
+        model_primary = (route.get("model") or "").strip() if isinstance(route, dict) else ""
+        fallback_used = bool((meta or {}).get("fallback_used")) if isinstance(meta, dict) else False
+        model_label = _MODEL_LABELS.get(model_primary or model or "") or _MODEL_LABELS.get((model or "").strip()) or ""
         out[lane] = {
             "task": task,
             "ok": adapter is not None,
             "backend": backend_used or (adapter.name if adapter is not None else "none"),
-            "model": model_used or (getattr(adapter, "model", "") if adapter is not None else ""),
-            "fallback_used": bool((meta or {}).get("fallback_used")) if isinstance(meta, dict) else False,
+            "model": model,
+            "model_primary": model_primary or model,
+            "model_label": model_label,
+            "fallback_used": fallback_used,
             "error": (err or "").strip(),
             "route": route if isinstance(route, dict) else {},
         }

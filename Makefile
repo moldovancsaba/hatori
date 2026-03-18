@@ -28,7 +28,7 @@ run-ui-hatori:
 	NEED_OLLAMA=0; \
 	if printf '%s' "$$ORDER" | tr '[:upper:]' '[:lower:]' | grep -q 'ollama'; then NEED_OLLAMA=1; fi; \
 	if [ "$${HATORI_MODEL:-}" = "ollama" ] || [ -n "$${HATORI_OLLAMA_MODEL:-}" ] || [ -n "$${HATORI_OLLAMA_URL:-}" ]; then NEED_OLLAMA=1; fi; \
-	if [ "$$NEED_OLLAMA" = "1" ]; then ./tools/scripts/ensure_ollama.sh; fi; \
+	if [ "$$NEED_OLLAMA" = "1" ]; then ./tools/scripts/ensure_ollama.sh; ./tools/scripts/ensure_hatori_models.sh; fi; \
 	./tools/scripts/ensure_service_port.sh "$$PORT_VAL" ui ". .venv/bin/activate && python -m uvicorn ui.app:app --host 127.0.0.1 --port $$PORT_VAL"
 
 .PHONY: run-api

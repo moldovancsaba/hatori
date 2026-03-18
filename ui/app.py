@@ -793,7 +793,7 @@ def _sanitize_with_stats(text: str) -> tuple[str, float]:
 def _needs_repair(raw: str, cleaned: str, removed_ratio: float) -> bool:
     if not cleaned:
         return True
-    if removed_ratio > 0.30:
+    if removed_ratio > 0.50:
         return True
     return len(cleaned.strip()) < 48
 
@@ -1529,7 +1529,14 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
         try:
             clean_answer = _repair_assistant_output(model, language_code, text_raw, raw_answer)
         except Exception:
-            clean_answer = localized_model_error(language_code, "unsafe model output removed")
+            if (
+                clean_answer
+                and len(clean_answer.strip()) >= 20
+                and not _has_forbidden_user_visible_markers(clean_answer)
+            ):
+                pass
+            else:
+                clean_answer = localized_model_error(language_code, "unsafe model output removed")
     if model is not None and language_code == "hu" and not _looks_hungarian(clean_answer):
         try:
             clean_answer = _repair_assistant_output(model, language_code, text_raw, clean_answer)

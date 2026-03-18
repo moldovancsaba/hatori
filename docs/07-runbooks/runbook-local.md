@@ -21,6 +21,13 @@ Service startup behavior:
 - If Docker/Colima is unavailable at login, service still starts API/UI and retries DB bootstrap in background.
 - Health may show `DB: down/unknown` temporarily while API remains reachable.
 
+**SSOT #339 (Startup hardening + MLX reliability)** — acceptance mapping:
+- launchd starts API/UI even if Docker/Colima is down: `tools/scripts/hatori_service.sh` starts API/UI in loop; `try_bootstrap_docker_stack` is best-effort and does not block.
+- API sources `hatori.env` at start: service invokes API with `set -a; . "$ENV_FILE"; set +a` before uvicorn.
+- stop/restart honor ports from env: `tools/scripts/stop_hatori.sh` sources env and uses `UI_PORT`/`API_PORT`.
+- `/v1/health` MLX state: `api/app.py` `_runtime_status()` returns `configured: true|false`; menu shows "n/a" when not configured (see menu-user-guide).
+- MLX fallback: `tools/scripts/hatori_mlx_mode.sh` (on|off|status); runbook "MLX operational failover" and menu-user-guide "need temporary continuity while MLX is broken".
+
 Menu bar control app (health + stop/restart/quit):
 
 ```bash
@@ -335,3 +342,5 @@ make bootstrap
 make models-pull
 make doctor
 ```
+
+At launch (`make run` or the LaunchAgent service), the stack runs `ensure_ollama.sh` then `ensure_hatori_models.sh` so Ollama is up and required models (including Granite drafter) are pulled if missing — the agent is available when Hatori starts. `hatori_models_pull.sh` applies route defaults (e.g. `granite4:350m` for drafter) so even envs created before those defaults get the full model set.

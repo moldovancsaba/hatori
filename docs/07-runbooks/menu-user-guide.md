@@ -80,6 +80,9 @@ This helps you quickly diagnose:
 - lane is `down` or unexpected model
 : check `~/.config/hatori/hatori.env` route keys (`HATORI_ROUTE_<TASK>_*`), then restart.
 
+- **Drafter shows `ollama/gemma3:1b` instead of IBM Granite Nano**
+: (1) In `~/.config/hatori/hatori.env` set drafter primary to Granite, e.g. `HATORI_ROUTE_CONTEXT_PACK_MODEL=granite4:350m` (and optionally `HATORI_ROUTE_CLASSIFY_INTENT_MODEL`, `HATORI_ROUTE_EXTRACT_FIELDS_MODEL`, etc. to `granite4:350m`). (2) Pull the model: `ollama pull granite4:350m`. (3) Restart the service so the API uses the new config. (4) Rebuild the menu app so it shows the primary/label: `make install-HatoriMenubar`, then quit and reopen the menu bar app (or run `make run-HatoriMenubar`). The menu title shows the configured primary (e.g. “IBM Granite Nano — lightest”); if the fallback is in use it will show “using gemma3:1b”.
+
 ## Related Docs
 
 - Local runbook: `docs/07-runbooks/runbook-local.md`

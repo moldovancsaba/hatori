@@ -51,12 +51,24 @@ These are standing rules. Do not violate them without explicit PO approval.
 
 ---
 
+### <a id="rule-wrong-answer-better-than-none"></a>Learning: wrong answer is better than no answer
+
+**Slug:** `wrong-answer-better-than-none`
+
+- The system **must** learn from user feedback. That requires the user to see a reply they can **accept** or **edit**.
+- If the UI shows only a generic error (e.g. "unsafe model output removed"), the user cannot accept or edit — so **no learning is recorded**. Prefer showing sanitized model output when it is safe (length, no forbidden markers) so both annotation paths are available.
+- **Accept** (sent as-is) → record PositiveFeedback + delivery; **edit + problem** (edited_then_sent or thumbs-down with comment) → record NegativeFeedback with correction/edit_reason. Both paths annotate knowledge (learning_events) that is summarized for the model (`recent_feedback_summary`) and thus finetune behavior.
+
+*Reference:* User requirement 2026-03-18; overview "Annotate knowledge".
+
+---
+
 ## Gotchas and decisions
 
 - **Reply integration:** Can still receive unusable text even when model runtime is technically available; treat scaffold leakage as hard failure and fall back deterministically.
 - **Menubar/service health:** May show repeated “foreign process owns port” when UI/API were started manually; launchd service mode intentionally refuses takeover for safety.
 - **API and UI:** Share logic through `ui.app` helpers by design; API and UI both use `ui.app` for shared behaviour.
-- **Annotate knowledge:** Feedback→behavior is prompt-only (recent_feedback_summary in retrieved_context); no automatic promotion from learning_events to PKS. Doc→PKS is propose-only: `hatori propose-pks` inserts Pending records; user must run `hatori pks approve <id>` to promote.
+- **Annotate knowledge:** Feedback→behavior is prompt-only (recent_feedback_summary in retrieved_context); no automatic promotion from learning_events to PKS. Doc→PKS is propose-only: `hatori propose-pks` inserts Pending records; user must run `hatori pks approve <id>` to promote. **Accept and edit outcomes both must create learning_events** so the system can annotate knowledge and adapt; wrong answer is better than no answer (rule `wrong-answer-better-than-none`).
 
 ---
 
@@ -66,3 +78,4 @@ These are standing rules. Do not violate them without explicit PO approval.
 |-----------|--------|
 | 2026-03-16 | Initial BRAIN_DUMP.md; added rule `chat-no-hardcoded-answers`, `leakage-blocking`, `planning-intent-boundaries`; migrated gotchas from braindump-next-agent. |
 | 2026-03-18 | Added gotcha: annotate knowledge (feedback summary + propose-pks). v0.8.0. |
+| 2026-03-18 | Added rule `wrong-answer-better-than-none`: wrong answer better than no answer so system can learn; accept and edit both must annotate knowledge (learning_events). Expanded overview "Annotate knowledge" with principle and two paths. |
