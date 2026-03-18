@@ -1,5 +1,19 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (CI fix: NameError Any in ui/app.py)
+- Objective: Fix `make test` failure in CI: `NameError: name 'Any' is not defined` when importing `ui.app`.
+
+### What changed
+- **ui/app.py:** Added `from __future__ import annotations` at top of file so annotations (e.g. `dict[str, Any]`) are deferred; `Any` no longer required at parse time. Kept `from typing import Any` for any runtime use.
+
+### Validation
+- `make test`: 103/103 PASS locally. CI re-run should confirm.
+
+### SSOT
+- No card; follow-up to v0.8.0 delivery.
+
+---
+
 ## 2026-03-18 - AI Developer (v0.8.0: annotate knowledge — feedback→behavior + doc→PKS)
 - Objective: Deliver the “process to annotate knowledge” gap: feedback in prompt (feedback→behavior) and doc→PKS proposal.
 

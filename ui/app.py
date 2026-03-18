@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import html
 import json
@@ -8,9 +10,9 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 import re
-from typing import Any
 import subprocess
 import uuid
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi import File
