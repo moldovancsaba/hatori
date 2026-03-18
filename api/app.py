@@ -615,6 +615,7 @@ def _generate_reply(
             "pks_approved": ui.summarize_pks_for_model(pks_rows, limit=4),
             "local_evidence_top": ui.summarize_evidence_for_model(evidence_rows, limit=4),
             "drafter_pack": drafter_pack,
+            "recent_feedback_summary": ui.summarize_recent_learning_for_model(limit=15),
         },
     )
     task_prompt += (

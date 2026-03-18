@@ -324,8 +324,8 @@ Configure in `~/.config/hatori/hatori.env` using `HATORI_ROUTE_<TASK>_BACKEND|MO
 Recommended production setup:
 - Writer primary: `mlx` + Apertus model id
 - Writer fallback: `ollama:gemma2:2b`
-- Drafter primary: `ollama:gemma3:1b`
-- Drafter fallback: `ollama:llama3.2:1b`
+- Drafter primary: `ollama:granite4:350m` (IBM Granite Nano — lightest; if you use `ollama run ibm/granite4:350m`, set `HATORI_ROUTE_*_MODEL=ibm/granite4:350m` in env)
+- Drafter fallback: `ollama:gemma3:1b`
 - Judge primary: `ollama:llama3.2:3b`
 
 Bootstrap and model pull:

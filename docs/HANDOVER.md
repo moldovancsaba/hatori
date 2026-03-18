@@ -1,5 +1,29 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (v0.8.0: annotate knowledge — feedback→behavior + doc→PKS)
+- Objective: Deliver the “process to annotate knowledge” gap: feedback in prompt (feedback→behavior) and doc→PKS proposal.
+
+### What changed
+- **Feedback→behavior:** `ui/app.py`: Added `summarize_recent_learning_for_model(limit=15)`; UI chat and API respond now include `recent_feedback_summary` in `retrieved_context` (counts by kind, last negative comment, last positive note). Model can adapt to recent thumbs/outcomes.
+- **Doc→PKS:** `hatori/cli.py`: Added `propose_pks_from_doc(path_or_artefact_id)` and CLI `hatori propose-pks <path|artefact_id> [--json]`. Uses drafter (extract_fields) to suggest 1–5 PKS records (A–F); inserts as Pending, provenance LocalDoc. User approves with `hatori pks approve <id>`.
+- **Docs:** `docs/00-overview/README.md`: New “Annotate knowledge (‘act like me’)” section; added `propose-pks` to runtime commands. CHANGELOG [0.8.0], VERSION 0.8.0, README/docs version refs.
+
+### Files touched
+- `ui/app.py` (summarize_recent_learning_for_model, retrieved_context)
+- `api/app.py` (retrieved_context)
+- `hatori/cli.py` (propose_pks_from_doc, propose-pks command)
+- `docs/00-overview/README.md`
+- `CHANGELOG.md`, `VERSION`, `README.md`, `docs/11-roadmap/issues.md`
+- `docs/HANDOVER.md`
+
+### Validation
+- `make test` run (may still be running). Lint clean on modified files.
+
+### SSOT
+- No specific card; delivery of previously identified gap (annotate knowledge).
+
+---
+
 ## 2026-03-18 - AI Developer (v0.7.9: planning test fix + delivery)
 - Objective: Fix failing golden planning tests (test_62, test_63, test_89); deliver with versioning, commit, push, SSOT.
 

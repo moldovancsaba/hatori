@@ -2,6 +2,12 @@
 
 All notable changes to this project are tracked here.
 
+## [0.8.0] - 2026-03-18
+
+### Added
+- **Feedback→behavior:** Recent learning_events (last 15) are summarized and injected into the chat/API task prompt as `recent_feedback_summary` (counts by kind, last negative comment, last positive note). Enables the model to adapt to user feedback without automatic PKS promotion.
+- **Doc→PKS proposal:** New CLI `hatori propose-pks <path|artefact_id> [--json]` extracts 1–5 PKS candidate records (modules A–F) from a document or from an ingested artefact’s chunks using the drafter model; inserts them as **Pending** (provenance LocalDoc). User approves with `hatori pks approve <id>`.
+
 ## [0.7.9] - 2026-03-18
 
 ### Fixed

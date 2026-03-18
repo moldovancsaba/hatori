@@ -8,6 +8,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 import re
+from typing import Any
 import subprocess
 import uuid
 
@@ -264,6 +265,37 @@ def summarize_evidence_for_model(rows: list[dict], limit: int = 4) -> list[dict]
             }
         )
     return out
+
+
+def summarize_recent_learning_for_model(limit: int = 15) -> dict[str, Any]:
+    """Load recent learning_events and return a short summary for prompt context (feedback→behavior)."""
+    rows = psql_json(
+        "SELECT kind, confidence, details, occurred_at "
+        "FROM learning_events "
+        "ORDER BY occurred_at DESC "
+        f"LIMIT {int(limit)}"
+    )
+    counts: dict[str, int] = {}
+    last_negative_comment: str = ""
+    last_positive_note: str = ""
+    for row in rows:
+        k = (row.get("kind") or "").strip()
+        if k:
+            counts[k] = counts.get(k, 0) + 1
+        details = row.get("details") or {}
+        if isinstance(details, dict):
+            comment = (details.get("comment") or details.get("edit_reason") or "").strip()[:200]
+            if k == "NegativeFeedback" and comment and not last_negative_comment:
+                last_negative_comment = comment
+            if k == "PositiveFeedback" and not last_positive_note:
+                last_positive_note = "User approved this style." if not comment else comment[:120]
+    summary_parts = [f"{k}: {v}" for k, v in sorted(counts.items())]
+    return {
+        "counts": counts,
+        "summary": "Recent feedback: " + "; ".join(summary_parts) if summary_parts else "No recent feedback.",
+        "last_negative_comment": last_negative_comment or "",
+        "last_positive_note": last_positive_note or "",
+    }
 
 
 def build_human_sources_lines(language_code: str, pks_rows: list[dict], evidence_rows: list[dict]) -> list[str]:
@@ -1460,6 +1492,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
             "pks_approved": summarize_pks_for_model(pks_rows, limit=4),
             "local_evidence_top": summarize_evidence_for_model(evidence_rows, limit=4),
             "drafter_pack": drafter_pack,
+            "recent_feedback_summary": summarize_recent_learning_for_model(limit=15),
             "online_search_top": web_hits,
             "live_weather": weather_data,
         },

@@ -12,6 +12,7 @@ import uuid
 from hatori.embeddings import EmbeddingsAdapter
 from hatori.embeddings import get_embeddings_adapter
 from hatori.model import get_model_adapter
+from hatori.model import get_task_model_adapter
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
 from hatori.prompts import render_default_output
@@ -177,6 +178,81 @@ def pks_set_status(rid: str, status: str, reason: dict | None = None) -> None:
         details["reason"] = reason
     audit(action_map[status], "pks_record", rid, details)
     print("OK")
+
+
+def _extract_json_array(raw: str) -> list[dict[str, Any]]:
+    """Parse JSON array of objects from model output; tolerate markdown fences."""
+    text = (raw or "").strip()
+    for start_marker in ("[", "```json\n[", "```\n["):
+        start = text.find(start_marker)
+        if start >= 0:
+            text = text[start + len(start_marker) - 1:]
+            break
+    end = text.rfind("]")
+    if end >= 0:
+        text = text[: end + 1]
+    try:
+        out = json.loads(text)
+        return out if isinstance(out, list) else []
+    except json.JSONDecodeError:
+        return []
+
+
+def propose_pks_from_doc(path_or_artefact_id: str, max_chars: int = 6000) -> dict[str, Any]:
+    """Extract PKS candidate records from a document (path or artefact_id); insert as Pending (provenance LocalDoc)."""
+    text = ""
+    if UUID_RE.match(path_or_artefact_id.strip()):
+        rows = psql_json(
+            f"SELECT content FROM embeddings WHERE artefact_id=\x27{_esc_sql(path_or_artefact_id.strip())}\x27 "
+            "ORDER BY chunk_id LIMIT 50"
+        )
+        text = "\n".join((r.get("content") or "").strip() for r in rows if (r.get("content") or "").strip())
+    else:
+        path = Path(path_or_artefact_id).expanduser().resolve()
+        if not path.is_file():
+            raise SystemExit(f"Not a file: {path}")
+        text = read_file_text(path)
+    text = (text or "").strip()[:max_chars]
+    if not text or len(text) < 80:
+        return {"proposed": 0, "ids": [], "error": "Text too short or empty."}
+
+    adapter, err, _ = get_task_model_adapter("extract_fields")
+    if adapter is None:
+        return {"proposed": 0, "ids": [], "error": f"Model unavailable: {err}"}
+
+    prompt = (
+        "From the following document text, extract 1 to 5 candidate PKS records (facts, preferences, decisions, or profile-like statements). "
+        "Return ONLY a JSON array of objects, each with keys: module, title, body. "
+        "module must be one of: A (Profile), B (Facts), C (Preferences), D (Projects), E (Tasks), F (Decisions). "
+        "Only suggest items that are clearly stated or strongly implied. No markdown, no explanation.\n\n"
+        f"Document text:\n{text}\n"
+    )
+    try:
+        raw = adapter.generate(system_prompt="PKS extraction.", task_prompt=prompt).strip()
+    except Exception as exc:
+        return {"proposed": 0, "ids": [], "error": str(exc)}
+    candidates = _extract_json_array(raw)
+    allowed_modules = {"A", "B", "C", "D", "E", "F"}
+    created: list[str] = []
+    for item in candidates[:10]:
+        if not isinstance(item, dict):
+            continue
+        mod = (item.get("module") or "").strip().upper()
+        if len(mod) != 1 or mod not in allowed_modules:
+            continue
+        title = (item.get("title") or "").strip()[:500]
+        body = (item.get("body") or "").strip()[:8000]
+        if not title or not body:
+            continue
+        rid = str(uuid.uuid4())
+        psql(
+            "INSERT INTO pks_records (id, module, title, body, status, provenance, confidence, scope) "
+            f"VALUES (\x27{rid}\x27, \x27{mod}\x27, \x27{_esc_sql(title)}\x27, \x27{_esc_sql(body)}\x27, "
+            "\x27Pending\x27, \x27LocalDoc\x27, \x27Medium\x27, \x27Personal\x27);"
+        )
+        audit("create", "pks_record", rid, {"status": "Pending", "module": mod, "source": "propose_pks_from_doc"})
+        created.append(rid)
+    return {"proposed": len(created), "ids": created}
 
 
 def tokenize(text: str) -> list[str]:
@@ -764,6 +840,20 @@ def main(argv: list[str]) -> None:
             return
 
         raise SystemExit("Unknown pks subcommand: " + sub)
+
+    if cmd == "propose-pks":
+        args = argv[2:]
+        json_mode, args = parse_bool_flag(args, "--json")
+        if len(args) != 1:
+            raise SystemExit("Usage: hatori propose-pks <path|artefact_id> [--json]")
+        payload = propose_pks_from_doc(args[0])
+        if json_mode:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            if payload.get("error"):
+                print("Error:", payload["error"])
+            print(f"Proposed {payload['proposed']} PKS record(s) (Pending). IDs: {payload.get('ids', [])}")
+        return
 
     if cmd == "ask":
         args = argv[2:]

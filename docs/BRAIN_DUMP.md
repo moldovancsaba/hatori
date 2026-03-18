@@ -56,6 +56,7 @@ These are standing rules. Do not violate them without explicit PO approval.
 - **Reply integration:** Can still receive unusable text even when model runtime is technically available; treat scaffold leakage as hard failure and fall back deterministically.
 - **Menubar/service health:** May show repeated “foreign process owns port” when UI/API were started manually; launchd service mode intentionally refuses takeover for safety.
 - **API and UI:** Share logic through `ui.app` helpers by design; API and UI both use `ui.app` for shared behaviour.
+- **Annotate knowledge:** Feedback→behavior is prompt-only (recent_feedback_summary in retrieved_context); no automatic promotion from learning_events to PKS. Doc→PKS is propose-only: `hatori propose-pks` inserts Pending records; user must run `hatori pks approve <id>` to promote.
 
 ---
 
@@ -64,3 +65,4 @@ These are standing rules. Do not violate them without explicit PO approval.
 | Date       | Change |
 |-----------|--------|
 | 2026-03-16 | Initial BRAIN_DUMP.md; added rule `chat-no-hardcoded-answers`, `leakage-blocking`, `planning-intent-boundaries`; migrated gotchas from braindump-next-agent. |
+| 2026-03-18 | Added gotcha: annotate knowledge (feedback summary + propose-pks). v0.8.0. |
