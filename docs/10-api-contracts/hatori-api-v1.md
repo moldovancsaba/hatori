@@ -98,9 +98,15 @@ Response `200`:
     "respond": 1,
     "ingest": 3,
     "outcome": 2
-  }
+  },
+  "runtime_status": {
+    "mlx": { "backend": "mlx", "ok": false, "configured": false, "error": "not configured" },
+    "ollama": { "backend": "ollama", "ok": true, "configured": true, "model": "llama3.2:3b" }
+  },
+  "task_model_routing": { "writer": {}, "drafter": {}, "judge": {} }
 }
 ```
+- `runtime_status.mlx` / `runtime_status.ollama`: each has `ok`, optional `configured` (false = not configured / disabled; menu shows “n/a” instead of “down”), optional `model`, `error`.
 
 ## 8.2 POST /v1/agent/respond
 

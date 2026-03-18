@@ -1180,6 +1180,38 @@ def test_94_api_respond_creates_two_interactions_linked() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
+def test_94b_api_respond_planning_hu_quality() -> None:
+    """API planning response: Hungarian quality, next_actions structure, no English leak."""
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    try:
+        client = api_client()
+        resp = client.post(
+            "/v1/agent/respond",
+            headers={"X-Hatori-Token": "golden-token"},
+            json={
+                "conversation_id": "reply:test-94b",
+                "message_id": "reply:m94b",
+                "sender_id": "reply:u94b",
+                "message": "Szia, ma konyhai feladatokat fogunk végezni. Kérlek készíts rövid napi tervet.",
+            },
+        )
+        assert_true(resp.status_code == 200, "POST /v1/agent/respond planning should return 200")
+        out = resp.json()
+        assert_true("next_actions" in out and isinstance(out["next_actions"], list), "response must include next_actions list")
+        assert_true("assistant_message" in out, "response must include assistant_message")
+        msg_lower = (out.get("assistant_message") or "").lower()
+        assert_true("next actions" not in msg_lower, "Hungarian planning response must not contain English section title 'Next actions'")
+        next_actions = out["next_actions"]
+        if len(next_actions) >= 5:
+            assert_true(5 <= len(next_actions) <= 8, "planning next_actions should contain 5-8 items when model returns full plan")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
 def test_95_api_feedback_creates_learning_event_linked() -> None:
     old = os.environ.get("HATORI_API_TOKEN")
     os.environ["HATORI_API_TOKEN"] = "golden-token"
@@ -1759,6 +1791,7 @@ def collect_tests() -> list:
         test_93_api_respond_requires_token_401,
         test_93b_api_auth_required_for_post_endpoints,
         test_94_api_respond_creates_two_interactions_linked,
+        test_94b_api_respond_planning_hu_quality,
         test_95_api_feedback_creates_learning_event_linked,
         test_96_api_ingest_event_idempotent,
         test_97_api_search_returns_human_readable_only,

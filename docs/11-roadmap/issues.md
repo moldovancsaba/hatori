@@ -6,5 +6,5 @@ Canonical issue-style planning is maintained in:
 This file exists as a stable pointer for teams asking for the current issue list.
 
 Current version context:
-- `v0.7.0`
-- Last updated: 2026-02-27
+- `v0.7.8`
+- Last updated: 2026-03-18

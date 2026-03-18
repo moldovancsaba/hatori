@@ -2,7 +2,9 @@
 
 # Braindump: Next Agent Continuation
 
-Last updated: 2026-03-02
+Last updated: 2026-03-16
+
+**Refer to and use:** [docs/BRAIN_DUMP.md](../BRAIN_DUMP.md) for standing **rules** (referenceable by slug and anchor) and **gotchas**. This file is the continuation log and 70-protocol handover; BRAIN_DUMP is the single place to cite from runbooks, prompts, and code.
 
 ## 70 Protocol Handover Entry (2026-03-02 22:18:57 EET, AI Dev Agent)
 - Branch: `publish-main`
@@ -41,10 +43,11 @@ Last updated: 2026-03-02
   3. Patch runtime detection/init for stable MLX up status.
   4. Validate menu output and lane routing telemetry with evidence.
 
-## Latest learnings (2026-03-02)
-- `reply` integration can still receive unusable text even when model runtime is technically available; treat internal scaffold leakage as a hard failure and fall back deterministically.
-- Naive substring planning detection (`"ma"` inside words such as `email`) causes misrouting into planning logic; intent gates should use regex word boundaries.
-- Menubar/service health may show repeated `foreign process owns port` messages when UI/API were started manually; launchd service mode intentionally refuses takeover for safety.
+## Latest learnings (session-specific)
+
+Standing rules and gotchas live in **[docs/BRAIN_DUMP.md](../BRAIN_DUMP.md)**. Use that doc to refer to rules (e.g. `chat-no-hardcoded-answers`, `leakage-blocking`, `planning-intent-boundaries`).
+
+- Add here only **session-specific** learnings that are not yet promoted to BRAIN_DUMP. When a learning becomes a standing rule or gotcha, add it to BRAIN_DUMP and optionally keep a one-line pointer here.
 
 ## Current state
 - Repo: `/Users/moldovancsaba/Projects/hatori`

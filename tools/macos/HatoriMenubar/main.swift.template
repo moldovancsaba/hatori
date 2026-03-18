@@ -124,6 +124,13 @@ final class HatoriMenubarApp: NSObject, NSApplicationDelegate {
         return ok ? "up" : "down"
     }
 
+    /// Runtime state for menu: "up" | "down" | "n/a" (n/a when runtime is not configured).
+    private func runtimeState(rt: [String: Any]) -> String {
+        if (rt["configured"] as? Bool) == false { return "n/a" }
+        guard let ok = rt["ok"] as? Bool else { return "unknown" }
+        return ok ? "up" : "down"
+    }
+
     private func modelLaneTitle(_ lane: String, data: [String: Any]?) -> String {
         guard let data else { return "\(lane): unknown" }
         let backend = (data["backend"] as? String) ?? "none"
@@ -176,7 +183,7 @@ final class HatoriMenubarApp: NSObject, NSApplicationDelegate {
                 self.updateIconColor(isUp: true)
                 self.healthItem.title = "Health: API up"
                 self.detailItem.title = self.trunc("DB: \(db)  Primary: \(model)\(modelName.isEmpty ? "" : "/\(modelName)")")
-                self.runtimeItem.title = self.trunc("Runtimes: MLX \(self.boolState(mlx["ok"])), Ollama \(self.boolState(ollama["ok"]))")
+                self.runtimeItem.title = self.trunc("Runtimes: MLX \(self.runtimeState(rt: mlx)), Ollama \(self.runtimeState(rt: ollama))")
                 self.writerItem.title = self.trunc(self.modelLaneTitle("Writer", data: writer))
                 self.drafterItem.title = self.trunc(self.modelLaneTitle("Drafter", data: drafter))
                 self.judgeItem.title = self.trunc(self.modelLaneTitle("Judge", data: judge))

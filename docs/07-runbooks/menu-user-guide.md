@@ -7,7 +7,7 @@ This guide explains what you can do from the macOS menu bar app (`HatoriMenubar`
 - `{hatori} vX.Y.Z`: product name and currently installed app version.
 - `Health: API up|down`: whether the local API is reachable.
 - `DB: ok|fail  Primary: <runtime>/<model>`: DB status plus current primary generation runtime/model.
-- `Runtimes: MLX up/down, Ollama up/down`: runtime service health.
+- `Runtimes: MLX up|down|n/a, Ollama up|down`: runtime service health. `n/a` means the runtime is not configured (e.g. no `HATORI_MLX_MODEL` or MLX disabled).
 - `Writer / Drafter / Judge`: current task-lane routing, model, and fallback state.
 
 ## --- Basics ---
@@ -55,7 +55,7 @@ Use these for operations and debugging.
 
 `Ollama` and `MLX` are runtimes, not models.
 
-- Runtime lines (`MLX`, `Ollama`) tell you if the engine is reachable.
+- Runtime lines (`MLX`, `Ollama`) tell you if the engine is reachable. MLX shows `n/a` when not configured so you don’t see a misleading “down”.
 - Lane lines (`Writer`, `Drafter`, `Judge`) tell you which model is used for each task type.
 
 This helps you quickly diagnose:

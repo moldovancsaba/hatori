@@ -131,7 +131,7 @@ Use board filters:
 Local `docs/11-roadmap/*` files are archived pointers only.
 
 ## Release
-- Current stable release: `v0.7.1`
+- Current stable release: `v0.7.8`
 ## Model Gateway (generator routing)
 - Internal gateway module: `hatori/model_gateway.py`
 - Stable interface:
@@ -159,7 +159,7 @@ Use board filters:
 Local `docs/11-roadmap/*` files are archived pointers only.
 
 ## Release
-- Current stable release: `v0.7.1`
+- Current stable release: `v0.7.8`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
 
 ## API Contract

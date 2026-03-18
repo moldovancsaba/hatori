@@ -33,8 +33,19 @@ CID = os.environ.get("CID", "hatori-pg")
 UUID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 UUID_ANY_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b", re.IGNORECASE)
 ROOT_DIR = Path(__file__).resolve().parent.parent
+VERSION_FILE = ROOT_DIR / "VERSION"
 EXPORT_DIR = ROOT_DIR / "artefacts" / "exports"
 UPLOAD_DIR = ROOT_DIR / "artefacts" / "uploads"
+
+
+def _app_version() -> str:
+    """Read app version from VERSION file for UI display."""
+    try:
+        if VERSION_FILE.is_file():
+            return VERSION_FILE.read_text(encoding="utf-8").strip() or "0.0.0"
+    except Exception:
+        pass
+    return "0.0.0"
 
 LOCALES_PATH = Path(__file__).resolve().parent / "locales.json"
 try:
@@ -912,49 +923,16 @@ def _normalize_plan_struct(language_code: str, parsed: dict | None) -> tuple[str
     answer = ((parsed or {}).get("answer_body") or "").strip()
     assumptions = [str(x).strip() for x in ((parsed or {}).get("assumptions") or []) if str(x).strip()]
     actions = [str(x).strip() for x in ((parsed or {}).get("next_actions") or []) if str(x).strip()]
-    answer_has_bad_chars = any(ch in answer for ch in ["", "±", "\x00"])
+    bad_chars = ["±", "\x00"]
+    answer_has_bad_chars = any(ch in answer for ch in bad_chars)
     if answer_has_bad_chars or len(answer) < 20:
         answer = ""
-    assumptions = [x for x in assumptions if len(x) >= 12 and not any(ch in x for ch in ["", "±", "\x00"])]
-    actions = [x for x in actions if len(x.strip()) >= 12 and not any(ch in x for ch in ["", "±", "\x00"])]
+    assumptions = [x for x in assumptions if len(x) >= 12 and not any(ch in x for ch in bad_chars)]
+    actions = [x for x in actions if len(x.strip()) >= 12 and not any(ch in x for ch in bad_chars)]
 
+    # No hardcoded plan content: reject empty or invalid model output so caller can show retry.
     if not answer:
-        if language_code == "hu":
-            answer = "Itt egy rövid, pragmatikus napi terv a mai napra."
-        else:
-            answer = "Here is a short pragmatic plan for today."
-
-    if not assumptions:
-        if language_code == "hu":
-            assumptions = [
-                "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
-                "Feltételezés: nincs átadott naptár, fix meeting vagy határidő.",
-            ]
-        else:
-            assumptions = [
-                "Assumption: offline mode only, without web sources.",
-                "Assumption: no explicit calendar, fixed meetings, or deadlines were provided.",
-            ]
-
-    if not actions:
-        if language_code == "hu":
-            actions = [
-                "P0 [ ] Nevezd meg a mai egyetlen legfontosabb eredményt.",
-                "P0 [ ] Válassz legfeljebb 3 fókuszfeladatot a mai napra.",
-                "P1 [ ] Bontsd a 3 feladatot első konkrét lépésekre.",
-                "P1 [ ] Ütemezz 1 admin/kommunikációs tételt.",
-                "P1 [ ] Tervezz 1 pufferblokkot megszakításokra.",
-                "P2 [ ] Nap végén tarts 10 perces záróértékelést.",
-            ]
-        else:
-            actions = [
-                "P0 [ ] Define one most important outcome for today.",
-                "P0 [ ] Pick up to 3 focus tasks.",
-                "P1 [ ] Break each task into a first concrete step.",
-                "P1 [ ] Schedule one admin/coordination item.",
-                "P1 [ ] Reserve one buffer block for interruptions.",
-                "P2 [ ] Run a 10-minute end-of-day review.",
-            ]
+        raise ValueError("empty or invalid plan answer from model")
 
     normalized: list[str] = []
     seen_signatures: set[str] = set()
@@ -981,25 +959,7 @@ def _normalize_plan_struct(language_code: str, parsed: dict | None) -> tuple[str
             seen_signatures.add(signature)
         normalized.append(line)
 
-    if len(normalized) < 5:
-        fallback_hu = [
-            "P1 [ ] Blokkold ki az első 45 perces fókuszidőt még most.",
-            "P1 [ ] Egyeztess egy rövid státuszfrissítést az érintettekkel.",
-            "P2 [ ] Zárd a napot rövid összegzéssel és holnapi első lépéssel.",
-        ]
-        fallback_en = [
-            "P1 [ ] Block the first 45-minute focus slot now.",
-            "P1 [ ] Send a short status update to stakeholders.",
-            "P2 [ ] Close the day with a short recap and tomorrow first step.",
-        ]
-        pool = fallback_hu if language_code == "hu" else fallback_en
-        for item in pool:
-            if len(normalized) >= 5:
-                break
-            if item not in normalized:
-                normalized.append(item)
-        while len(normalized) < 5:
-            normalized.append(pool[-1])
+    # No padding with hardcoded actions; use only model output.
     normalized = normalized[:8]
     return answer, assumptions[:6], normalized
 
@@ -1008,14 +968,23 @@ def generate_planning_structured(model, language_code: str, user_text: str, cont
     if model is None:
         raise RuntimeError("model unavailable")
 
+    lang_name = language_name(language_code)
+    quality_rules = (
+        "Phrase next_actions as natural checklist items in the same language as the response: one clear action per line. "
+        "P0 = single most important outcome today; P1 = concrete today tasks; P2 = wrap-up or end-of-day. "
+        "Do not repeat the same idea across items; avoid generic filler."
+    )
+    if language_code == "hu":
+        quality_rules += " Use natural Hungarian (e.g. imperative or first-person plural); no English section titles."
     prompt = (
-        f"Respond in {language_name(language_code)}.\n"
+        f"Respond in {lang_name}.\n"
         "Return ONLY valid JSON object, no markdown, no extra text.\n"
         "Schema:\n"
         '{"answer_body":"string","assumptions":["string"],"next_actions":["string"]}\n'
         "Rules:\n"
         "- 5 to 8 next_actions\n"
         "- include priority markers P0/P1/P2 in next_actions\n"
+        f"- {quality_rules}\n"
         "- do not include IDs, UUIDs, emb:, metadata, or template headers\n"
         "- do not echo 'User request:'\n"
         f"User message: {user_text}\n"
@@ -1055,32 +1024,13 @@ def get_structured_reply(
 ) -> dict[str, Any]:
     planning = is_daily_planning_request(user_text)
     source_lines = [s for s in (sources or []) if s.strip()]
+    # Planning defaults when no overrides: minimal only; no hardcoded plan content.
     if planning and language_code == "hu":
-        assumptions = [
-            "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
-            "Feltételezés: nincs átadott naptár, fix meeting, stakeholder-lista vagy határidő.",
-        ]
-        next_actions = [
-            "- P0 [ ] Ma 1 legfontosabb kimenetet nevezz meg, ami mérhetően lezárható.",
-            "- P0 [ ] Becsüld meg a reális kapacitást, majd válassz összesen legfeljebb 3 fókuszfeladatot.",
-            "- P1 [ ] Készíts rövid végrehajtási sorrendet a 3 feladathoz (első lépés + kész definíció).",
-            "- P1 [ ] Adj hozzá 1 admin/kommunikációs tételt, ami csökkenti a torlódást.",
-            "- P1 [ ] Tervezz 1 puffer tételt váratlan megszakításokra.",
-            "- P2 [ ] Nap végén tarts 10 perces visszatekintést: mi készült el, mi csúszik, mi a következő lépés.",
-        ]
+        assumptions = ["Feltételezés: napi terv nem áll rendelkezésre; a modell válaszából kell használni."]
+        next_actions = ["P1 [ ] Próbáld újra a napi tervezést, vagy folytasd a chatet."]
     elif planning:
-        assumptions = [
-            "Offline local runtime only; no web retrieval used.",
-            "No explicit calendar, meetings, stakeholders, or deadlines were provided by the user.",
-        ]
-        next_actions = [
-            "- P0 [ ] Define one measurable top outcome for today.",
-            "- P0 [ ] Pick up to three focus tasks aligned with realistic capacity.",
-            "- P1 [ ] Sequence the three tasks with a first concrete step each.",
-            "- P1 [ ] Add one admin/coordination task to reduce task friction.",
-            "- P1 [ ] Add one explicit buffer item for interruptions.",
-            "- P2 [ ] End with a short review and tomorrow-first-step note.",
-        ]
+        assumptions = ["Assumption: no plan content available; use model response only."]
+        next_actions = ["P1 [ ] Retry daily planning or continue the chat."]
     else:
         if language_code == "hu":
             assumptions = [
@@ -1148,8 +1098,9 @@ def render_chat_default_output(
 
 
 def layout(title: str, inner: str) -> str:
+    ver = _app_version()
     nav = (
-        "<div class='top'><div class='brand'>{hatori}</div><div class='nav'>"
+        "<div class='top'><div class='brand'>{hatori} v" + _h(ver) + "</div><div class='nav'>"
         "<a href='/chat'>Chat</a>"
         "<a href='/upload'>Upload</a>"
         "<a href='/search'>Search</a>"
@@ -1439,34 +1390,15 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
                     },
                 )
             except Exception:
+                # No hardcoded plan content: surface error and retry guidance only.
                 if language_code == "hu":
-                    plan_answer = "Itt egy rövid, pragmatikus napi terv a mai napra."
-                    assumptions = [
-                        "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
-                        "Feltételezés: nincs átadott naptár, fix meeting vagy határidő.",
-                    ]
-                    actions = [
-                        "P0 [ ] Nevezd meg a mai egyetlen legfontosabb eredményt.",
-                        "P0 [ ] Válassz legfeljebb 3 fókuszfeladatot a mai napra.",
-                        "P1 [ ] Bontsd a 3 feladatot első konkrét lépésekre.",
-                        "P1 [ ] Ütemezz 1 admin/kommunikációs tételt.",
-                        "P1 [ ] Tervezz 1 pufferblokkot megszakításokra.",
-                        "P2 [ ] Nap végén tarts 10 perces záróértékelést.",
-                    ]
+                    plan_answer = "A helyi modell nem elérhető. Kérlek indítsd el az Ollama szolgáltatást, majd próbáld újra."
+                    assumptions = ["Feltételezés: helyi modell jelenleg nem elérhető."]
+                    actions = ["P0 [ ] Indítsd el az Ollama szolgáltatást.", "P1 [ ] Küldd újra a napi tervezési kérést."]
                 else:
-                    plan_answer = "Here is a short pragmatic plan for today."
-                    assumptions = [
-                        "Assumption: offline mode only, without web sources.",
-                        "Assumption: no explicit calendar, fixed meetings, or deadlines were provided.",
-                    ]
-                    actions = [
-                        "P0 [ ] Define one most important outcome for today.",
-                        "P0 [ ] Pick up to 3 focus tasks.",
-                        "P1 [ ] Break each task into a first concrete step.",
-                        "P1 [ ] Schedule one admin/coordination item.",
-                        "P1 [ ] Reserve one buffer block for interruptions.",
-                        "P2 [ ] Run a 10-minute end-of-day review.",
-                    ]
+                    plan_answer = "Local model is unavailable. Start Ollama and try again."
+                    assumptions = ["Assumption: local model is currently unavailable."]
+                    actions = ["P0 [ ] Start Ollama service.", "P1 [ ] Resend the daily planning request."]
 
         answer = render_chat_default_output(
             plan_answer,

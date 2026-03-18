@@ -24,6 +24,8 @@ This runbook is for onboarding a developer/developer-agent to the {hatori} repo.
 ## Canonical policy & prompts
 - Charter (highest authority): `docs/01-charters/hatori-charter-v3.md`
 - Project management SSOT workflow: `docs/PROJECT_MANAGEMENT.md`
+- **Operational rules and gotchas (referenceable):** `docs/BRAIN_DUMP.md` — use for rules by slug/anchor (e.g. `#rule-chat-no-hardcoded-answers`).
+- Continuation log and 70 handover: `docs/07-runbooks/braindump-next-agent.md`
 - Prompt pack: `docs/09-prompts/`
   - `builder-system.md`
   - `builder-task-template.md`

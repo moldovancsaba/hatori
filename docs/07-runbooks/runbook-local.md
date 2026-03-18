@@ -16,6 +16,7 @@ make service-status
 ```
 
 Service startup behavior:
+- API/UI processes always source `~/.config/hatori/hatori.env` at runtime start; ports come from `UI_PORT`/`API_PORT` (defaults 23571/23572 if unset).
 - API/UI startup is non-blocking with respect to Docker/DB bootstrap.
 - If Docker/Colima is unavailable at login, service still starts API/UI and retries DB bootstrap in background.
 - Health may show `DB: down/unknown` temporarily while API remains reachable.

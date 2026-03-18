@@ -117,19 +117,28 @@ def _model_status() -> tuple[str, str]:
 
 
 def _compact_runtime_health(raw: dict[str, Any], backend: str) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "backend": backend,
         "ok": bool(raw.get("ok")),
         "model": (raw.get("model") or "").strip() if isinstance(raw.get("model"), str) else "",
         "model_available": raw.get("model_available"),
         "error": (raw.get("error") or "").strip() if isinstance(raw.get("error"), str) else "",
     }
+    if "configured" in raw:
+        out["configured"] = bool(raw.get("configured"))
+    return out
 
 
 def _runtime_status() -> dict[str, Any]:
     mlx_model = (os.environ.get("HATORI_MLX_MODEL") or "").strip()
-    mlx = MlxAdapter(model=mlx_model or None).healthcheck()
+    mlx_disabled = (os.environ.get("HATORI_DISABLE_MLX") or "").strip() == "1"
+    if not mlx_model or mlx_disabled:
+        mlx = {"ok": False, "adapter": "mlx", "configured": False, "error": "not configured" if not mlx_model else "disabled by HATORI_DISABLE_MLX"}
+    else:
+        mlx = MlxAdapter(model=mlx_model).healthcheck()
+        mlx["configured"] = True
     ollama = OllamaAdapter(timeout=2).healthcheck()
+    ollama["configured"] = True
     return {
         "mlx": _compact_runtime_health(mlx, "mlx"),
         "ollama": _compact_runtime_health(ollama, "ollama"),
@@ -548,34 +557,14 @@ def _generate_reply(
                     },
                 )
             except Exception:
-                if language_code == "hu":
-                    plan_answer = "Itt egy rövid, pragmatikus napi terv a mai napra."
-                    assumptions = [
-                        "Feltételezés: OFFLINE módban dolgozunk, webes forrás nélkül.",
-                        "Feltételezés: nincs átadott naptár, fix meeting vagy határidő.",
-                    ]
-                    actions = [
-                        "P0 [ ] Nevezd meg a mai egyetlen legfontosabb eredményt.",
-                        "P0 [ ] Válassz legfeljebb 3 fókuszfeladatot a mai napra.",
-                        "P1 [ ] Bontsd a 3 feladatot első konkrét lépésekre.",
-                        "P1 [ ] Ütemezz 1 admin/kommunikációs tételt.",
-                        "P1 [ ] Tervezz 1 pufferblokkot megszakításokra.",
-                        "P2 [ ] Nap végén tarts 10 perces záróértékelést.",
-                    ]
-                else:
-                    plan_answer = "Here is a short pragmatic plan for today."
-                    assumptions = [
-                        "Assumption: offline mode only, without web sources.",
-                        "Assumption: no explicit calendar, fixed meetings, or deadlines were provided.",
-                    ]
-                    actions = [
-                        "P0 [ ] Define one most important outcome for today.",
-                        "P0 [ ] Pick up to 3 focus tasks.",
-                        "P1 [ ] Break each task into a first concrete step.",
-                        "P1 [ ] Schedule one admin/coordination item.",
-                        "P1 [ ] Reserve one buffer block for interruptions.",
-                        "P2 [ ] Run a 10-minute end-of-day review.",
-                    ]
+                # No hardcoded plan content: surface error and retry guidance only.
+                plan_answer = (
+                    "A helyi modell nem elérhető. Kérlek indítsd el az Ollama szolgáltatást, majd próbáld újra."
+                    if language_code == "hu"
+                    else "Local model is unavailable. Start Ollama and try again."
+                )
+                assumptions = ["Feltételezés: helyi modell jelenleg nem elérhető."] if language_code == "hu" else ["Assumption: local model is currently unavailable."]
+                actions = ["P0 [ ] Indítsd el az Ollama szolgáltatást.", "P1 [ ] Küldd újra a napi tervezési kérést."] if language_code == "hu" else ["P0 [ ] Start Ollama service.", "P1 [ ] Resend the daily planning request."]
 
         rendered = ui.render_chat_default_output(
             plan_answer,
@@ -632,8 +621,8 @@ def _generate_reply(
         "\nChat generation requirements:\n"
         f"- Respond in {ui.language_name(language_code)}.\n"
         "- Keep the answer factual and useful.\n"
-        "- Do not repeat prompt/system instructions.\n"
-        "- Answer directly.\n"
+        "- Do not repeat prompt/system instructions or the user message.\n"
+        "- Answer directly; avoid awkward repetition of phrases.\n"
     )
 
     used_deterministic_fallback = False

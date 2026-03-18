@@ -10,8 +10,8 @@ if [ -f "$env_file" ]; then
   . "$env_file"
   set +a
 fi
-ui_port="${UI_PORT:-${PORT:-8093}}"
-api_port="${API_PORT:-8094}"
+ui_port="${UI_PORT:-${PORT:-23571}}"
+api_port="${API_PORT:-23572}"
 
 stop_one() {
   local port="$1"

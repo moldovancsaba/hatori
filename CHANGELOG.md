@@ -2,6 +2,31 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.8] - 2026-03-18
+
+### Changed
+- **SSOT verification and closure:** #337 (MLX health/menu status) and #339 (startup hardening + port defaults) verified against acceptance criteria; Done evidence posted on mvp-factory-control. #427 (API response quality) progress: test_94b_api_respond_planning_hu_quality PASS; progress note posted.
+- `docs/HANDOVER.md`: Session entries for 2026-03-18 (#337 verify/close, #339 verify/close, #427 progress). Board status for #337/#339 to Done requires manual move (script GraphQL option-id limitation).
+
+## [0.7.7] - 2026-03-16
+
+### Fixed
+- **#337** MLX runtime health/menu status: when MLX is not configured (no `HATORI_MLX_MODEL`) or disabled (`HATORI_DISABLE_MLX=1`), health and menu now show **MLX n/a** instead of "down". `/v1/health` `runtime_status.mlx` includes `configured: false` and a clear error in those cases; menu uses `runtimeState(rt:)` for up/down/n/a.
+- Chat no longer returns hardcoded daily-plan template on planning failure: exception path and empty model output now surface only error + retry guidance (e.g. start Ollama, resend); `_normalize_plan_struct` raises on empty plan instead of filling with template; bad-char check fixed (removed `""` from list that made every answer invalid).
+
+### Changed
+- `docs/BRAIN_DUMP.md` added as single referable source for operational rules and gotchas (slugs/anchors); `braindump-next-agent.md` and runbook point to it.
+- `get_structured_reply` planning defaults when no overrides: minimal single-line assumption and one retry action instead of long hardcoded plan.
+- API contract and menu user guide updated for `runtime_status.configured` and n/a display.
+
+### Changed (#339 alignment)
+- **Startup/stop scripts** now use documented default ports when env is unset: `UI_PORT` default 23571, `API_PORT` default 23572 (replacing legacy 8093/8094). `hatori_service.sh` and `stop_hatori.sh` source `~/.config/hatori/hatori.env` and honor configured ports; fallback defaults match `hatori_env_init.sh` and runbooks.
+
+### Changed (#427 API response quality)
+- **Planning prompt** (`generate_planning_structured`): Added explicit quality rules—natural checklist phrasing, P0/P1/P2 meaning (top outcome / today tasks / wrap-up), no repetition; for Hungarian, natural phrasing and no English section titles.
+- **API chat requirements**: Added “do not repeat the user message” and “avoid awkward repetition of phrases” to generation requirements.
+- **Golden test** `test_94b_api_respond_planning_hu_quality`: Asserts API planning response includes `next_actions`, no English “Next actions” in `assistant_message`, and 5–8 items when model returns full plan.
+
 ## [0.7.6] - 2026-03-02
 
 ### Added
