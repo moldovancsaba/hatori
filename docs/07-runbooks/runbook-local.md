@@ -319,6 +319,15 @@ Idempotency behavior:
 - `external_outcome_id` is unique.
 - Repeating the same payload returns the existing IDs and does not create duplicate `delivery_events` / `learning_events`.
 
+## Operator dashboard (Outcomes)
+
+Track **sent_as_is** vs **edited_then_sent** and model-route quality (SSOT #280).
+
+- **Path:** `http://127.0.0.1:${UI_PORT:-23571}/outcomes`
+- **Metrics:** Delivery counts (sent_as_is, edited_then_sent, not_sent) for last 7 and 30 days; approval % and edit %; optional breakdown by `platform`; optional PositiveFeedback / NegativeFeedback counts from `learning_events`.
+- **Data source:** `delivery_events` and `learning_events` (read-only). No API contract change.
+- Nav: link "Outcomes" in the UI next to Learning / Interactions.
+
 ## Per-Task Model Routing (Final)
 
 Route lanes:

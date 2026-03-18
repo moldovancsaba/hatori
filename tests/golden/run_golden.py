@@ -475,6 +475,16 @@ def test_43_chat_get_returns_200() -> None:
     assert_true(resp.status_code == 200, "GET /chat should return 200")
     assert_true("Chat" in resp.text, "/chat page should render chat content")
 
+
+def test_43b_outcomes_dashboard_returns_200_and_shows_metrics() -> None:
+    client = ui_client()
+    resp = client.get("/outcomes")
+    assert_true(resp.status_code == 200, "GET /outcomes should return 200")
+    assert_true("Outcomes" in resp.text, "/outcomes page should have Outcomes title")
+    assert_true("Operator dashboard" in resp.text or "Outcomes" in resp.text, "page should show operator/outcomes content")
+    assert_true("Sent as-is" in resp.text or "sent_as_is" in resp.text, "page should show sent_as_is metric")
+    assert_true("7 days" in resp.text or "30 days" in resp.text, "page should show time windows")
+
     old_model = os.environ.get("HATORI_MODEL")
     old_path = os.environ.get("HATORI_LLAMA_MODEL")
     os.environ["HATORI_MODEL"] = "llamacpp"
@@ -1748,6 +1758,7 @@ def collect_tests() -> list:
         test_41_consistency_check_reports_pks_summary,
         test_42_model_healthcheck_none_ok,
         test_43_chat_get_returns_200,
+        test_43b_outcomes_dashboard_returns_200_and_shows_metrics,
         test_44_chat_send_creates_user_and_assistant_rows,
         test_45_chat_send_metadata_linking,
         test_46_feedback_up_creates_positive_learning,

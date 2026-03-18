@@ -1140,6 +1140,7 @@ def layout(title: str, inner: str) -> str:
         "<a href='/search'>Search</a>"
         "<a href='/interactions'>Interactions</a>"
         "<a href='/learning'>Learning</a>"
+        "<a href='/outcomes'>Outcomes</a>"
         "<a href='/pks/pending'>PKS Pending</a>"
         "<a href='/pks/all'>PKS All</a>"
         "<a href='/export.json'>Export JSON</a>"
@@ -1755,6 +1756,89 @@ def interactions() -> HTMLResponse:
 def learning() -> HTMLResponse:
     rows = psql("SELECT occurred_at, kind, confidence, details, related_interaction_id FROM learning_events ORDER BY occurred_at DESC LIMIT 100;")
     return HTMLResponse(layout("Learning", f"<div class='card'><h2>Learning</h2><pre>{_h(rows)}</pre></div>"))
+
+
+def _outcome_metrics() -> tuple[dict[str, int], dict[str, int], list[dict], dict[str, int]]:
+    """Return (counts_7d, counts_30d, platform_breakdown_30d, learning_counts_30d). Empty on error."""
+    empty_c: dict[str, int] = {}
+    empty_p: list[dict] = []
+    try:
+        rows_7 = psql_json(
+            "SELECT status, count(*)::int AS cnt FROM delivery_events "
+            "WHERE occurred_at >= now() - interval '7 days' GROUP BY status"
+        )
+        rows_30 = psql_json(
+            "SELECT status, count(*)::int AS cnt FROM delivery_events "
+            "WHERE occurred_at >= now() - interval '30 days' GROUP BY status"
+        )
+        counts_7d = {r["status"]: r["cnt"] for r in rows_7 if isinstance(r.get("status"), str)}
+        counts_30d = {r["status"]: r["cnt"] for r in rows_30 if isinstance(r.get("status"), str)}
+        platform_rows = psql_json(
+            "SELECT COALESCE(platform, '') AS platform, status, count(*)::int AS cnt "
+            "FROM delivery_events WHERE occurred_at >= now() - interval '30 days' "
+            "GROUP BY platform, status ORDER BY platform, status"
+        )
+        learning_rows = psql_json(
+            "SELECT kind, count(*)::int AS cnt FROM learning_events "
+            "WHERE occurred_at >= now() - interval '30 days' "
+            "AND kind IN ('PositiveFeedback', 'NegativeFeedback') GROUP BY kind"
+        )
+        learning_30d = {r["kind"]: r["cnt"] for r in learning_rows if isinstance(r.get("kind"), str)}
+        return counts_7d, counts_30d, platform_rows, learning_30d
+    except Exception:
+        return empty_c, empty_c, empty_p, empty_c
+
+
+@app.get("/outcomes", response_class=HTMLResponse)
+def outcomes() -> HTMLResponse:
+    counts_7d, counts_30d, platform_rows, learning_30d = _outcome_metrics()
+    sent_7 = counts_7d.get("sent_as_is", 0)
+    edit_7 = counts_7d.get("edited_then_sent", 0)
+    not_7 = counts_7d.get("not_sent", 0)
+    total_7 = sent_7 + edit_7
+    approval_7 = (sent_7 / total_7 * 100) if total_7 else 0
+    edit_ratio_7 = (edit_7 / total_7 * 100) if total_7 else 0
+    sent_30 = counts_30d.get("sent_as_is", 0)
+    edit_30 = counts_30d.get("edited_then_sent", 0)
+    not_30 = counts_30d.get("not_sent", 0)
+    total_30 = sent_30 + edit_30
+    approval_30 = (sent_30 / total_30 * 100) if total_30 else 0
+    edit_ratio_30 = (edit_30 / total_30 * 100) if total_30 else 0
+
+    body = ["<div class='card'><h2>Operator dashboard — Outcomes</h2>"]
+    body.append("<p>Delivery outcome ratios (accept vs edit). Data from <code>delivery_events</code>.</p>")
+    body.append("<table style='width:auto; border-collapse:collapse; margin:12px 0'>")
+    body.append("<tr><th style='text-align:left; padding:6px'>Window</th><th style='padding:6px'>Sent as-is</th><th style='padding:6px'>Edited then sent</th><th style='padding:6px'>Not sent</th><th style='padding:6px'>Approval %</th><th style='padding:6px'>Edit %</th></tr>")
+    body.append(
+        f"<tr><td style='padding:6px'>Last 7 days</td><td style='padding:6px'>{sent_7}</td><td style='padding:6px'>{edit_7}</td>"
+        f"<td style='padding:6px'>{not_7}</td><td style='padding:6px'>{approval_7:.0f}%</td><td style='padding:6px'>{edit_ratio_7:.0f}%</td></tr>"
+    )
+    body.append(
+        f"<tr><td style='padding:6px'>Last 30 days</td><td style='padding:6px'>{sent_30}</td><td style='padding:6px'>{edit_30}</td>"
+        f"<td style='padding:6px'>{not_30}</td><td style='padding:6px'>{approval_30:.0f}%</td><td style='padding:6px'>{edit_ratio_30:.0f}%</td></tr>"
+    )
+    body.append("</table></div>")
+
+    if platform_rows:
+        body.append("<div class='card'><h3>By platform (last 30 days)</h3>")
+        body.append("<table style='width:100%; border-collapse:collapse'><tr><th style='text-align:left; padding:6px'>Platform</th><th style='text-align:left; padding:6px'>Status</th><th style='padding:6px'>Count</th></tr>")
+        for r in platform_rows:
+            platform = (r.get("platform") or "").strip() or "(empty)"
+            status = (r.get("status") or "").strip()
+            cnt = r.get("cnt", 0)
+            body.append(f"<tr><td style='padding:6px'>{_h(platform)}</td><td style='padding:6px'>{_h(status)}</td><td style='padding:6px'>{cnt}</td></tr>")
+        body.append("</table></div>")
+
+    if learning_30d:
+        body.append("<div class='card'><h3>Feedback (last 30 days)</h3>")
+        body.append("<p>Learning events: PositiveFeedback / NegativeFeedback.</p>")
+        body.append("<table style='width:auto; border-collapse:collapse'><tr><th style='text-align:left; padding:6px'>Kind</th><th style='padding:6px'>Count</th></tr>")
+        for kind in ("PositiveFeedback", "NegativeFeedback"):
+            cnt = learning_30d.get(kind, 0)
+            body.append(f"<tr><td style='padding:6px'>{_h(kind)}</td><td style='padding:6px'>{cnt}</td></tr>")
+        body.append("</table></div>")
+
+    return HTMLResponse(layout("Outcomes", "".join(body)))
 
 
 @app.get("/pks/pending", response_class=HTMLResponse)

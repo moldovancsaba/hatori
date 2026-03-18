@@ -39,6 +39,9 @@ Use these for operations and debugging.
 - `Open UI /learning`
 : inspect learning/outcome feedback records.
 
+- `Open UI /outcomes`
+: operator dashboard — sent_as_is vs edited_then_sent ratios and feedback counts (last 7 d / 30 d).
+
 - `Restart Service`
 : reinstalls/reloads local background service and restarts processes.
 

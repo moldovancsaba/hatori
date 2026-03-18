@@ -1,5 +1,20 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (#280: Operator dashboard — Outcomes)
+- Objective: Deliver #280 Integrator operator dashboard: sent_as_is vs edited_then_sent ratios and model-route quality visibility.
+
+### What changed
+- **ui/app.py:** New `_outcome_metrics()` and `GET /outcomes` route; summary table (7d/30d counts, approval % and edit %); optional platform breakdown and PositiveFeedback/NegativeFeedback counts. Nav link "Outcomes" added.
+- **docs/07-runbooks/runbook-local.md:** "Operator dashboard (Outcomes)" subsection. **docs/07-runbooks/menu-user-guide.md:** Open UI /outcomes. **LLD-280:** Tasks 2–5 marked done. **CHANGELOG [0.8.0]:** Operator dashboard (#280). **tests/golden/run_golden.py:** test_43b_outcomes_dashboard_returns_200_and_shows_metrics.
+
+### Validation
+- `make test`: 104/104 PASS (includes test_43b). No API contract change.
+
+### SSOT
+- #280: Evidence comment posted on mvp-factory-control#280. Card moved to Done via ssot_board_update.sh after fixing Product option IDs in script (were stale; updated from project GraphQL API).
+
+---
+
 ## 2026-03-18 - AI Developer (#339: Continue In Progress — startup hardening + MLX)
 - Objective: Complete #339 acceptance verification, document mapping, post Done evidence.
 
@@ -11,7 +26,7 @@
 - Scripts verified: ENV_FILE sourced, UI_PORT/API_PORT from env in service and stop_hatori.sh. Service status shows com.hatori running.
 
 ### SSOT
-- #339: Completion evidence posted on issue. Board move to Done via script failed (GraphQL option-id); **PO to move card to Done manually** on MVP Factory Board.
+- #339: Completion evidence posted on issue. Card moved to Done via ssot_board_update.sh after Product option IDs fix in script.
 - No further implementation required; all criteria satisfied in tree.
 
 ---

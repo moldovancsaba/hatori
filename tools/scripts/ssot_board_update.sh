@@ -34,14 +34,15 @@ status_option_id() {
 
 product_option_id() {
   case "$1" in
-    "doneisbetter") echo "5a2478f0" ;;
-    "WarRoom") echo "61cb32b6" ;;
-    "{reply}") echo "d27ce93f" ;;
-    "{hatori}") echo "e5751b8f" ;;
-    "amanoba") echo "35d11f70" ;;
-    "messmass") echo "23589fb5" ;;
-    "launchmass") echo "0fbbb13f" ;;
-    "narimato") echo "83b3eb43" ;;
+    "doneisbetter") echo "e0cfa23b" ;;
+    "{sentinelsquad}") echo "478483cd" ;;
+    "{reply}") echo "f31be510" ;;
+    "{hatori}") echo "14e298c3" ;;
+    "amanoba") echo "3306e4ed" ;;
+    "messmass") echo "b14f2197" ;;
+    "launchmass") echo "1e8c13de" ;;
+    "narimato") echo "79c480bf" ;;
+    "{spot}") echo "0561b31b" ;;
     *) return 1 ;;
   esac
 }

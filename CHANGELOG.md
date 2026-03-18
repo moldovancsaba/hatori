@@ -9,6 +9,7 @@ All notable changes to this project are tracked here.
 - **Chat "unsafe model output removed":** When the repair step fails (e.g. model error or empty repair), the UI now keeps the sanitized original reply if it is safe (length ≥ 20, no forbidden markers) instead of always showing the generic error. Repair is only triggered when >50% of output was removed (was 30%) to reduce false triggers on normal replies with code blocks or lists.
 
 ### Added
+- **Operator dashboard (#280):** New UI route `GET /outcomes` shows sent_as_is vs edited_then_sent vs not_sent counts and approval/edit ratios for last 7 and 30 days; optional breakdown by platform and PositiveFeedback/NegativeFeedback counts. Nav link "Outcomes" added; runbook and menu-user-guide updated. No API contract change.
 - **Feedback→behavior:** Recent learning_events (last 15) are summarized and injected into the chat/API task prompt as `recent_feedback_summary` (counts by kind, last negative comment, last positive note). Enables the model to adapt to user feedback without automatic PKS promotion.
 - **Doc→PKS proposal:** New CLI `hatori propose-pks <path|artefact_id> [--json]` extracts 1–5 PKS candidate records (modules A–F) from a document or from an ingested artefact’s chunks using the drafter model; inserts them as **Pending** (provenance LocalDoc). User approves with `hatori pks approve <id>`.
 
