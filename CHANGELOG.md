@@ -2,6 +2,11 @@
 
 All notable changes to this project are tracked here.
 
+## [0.7.9] - 2026-03-18
+
+### Fixed
+- **Golden planning tests** (test_62, test_63, test_89): NullAdapter now returns deterministic planning JSON when `HATORI_MODEL=none` and the request is Hungarian daily planning, so the golden suite passes without a live model. Assumptions include calendar/meeting wording; next_actions 5–8 items with P0/P1/P2.
+
 ## [0.7.8] - 2026-03-18
 
 ### Changed

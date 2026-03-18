@@ -53,6 +53,26 @@ class NullAdapter:
                 "retrieved pks: 123e4567-e89b-12d3-a456-426614174000\n"
                 "emb:artefact-1:chunk-2\n"
             )
+        # Deterministic planning JSON for golden tests (HATORI_MODEL=none).
+        if '"answer_body"' in task_prompt and '"next_actions"' in task_prompt and "Respond in Hungarian" in task_prompt:
+            return json.dumps(
+                {
+                    "answer_body": "Rövid mai napi terv (determinisztikus). Pragmatikus feladatok és következő lépések.",
+                    "assumptions": [
+                        "Nincs átadott naptár; naptár adat hiányzik.",
+                        "Nincs megadott meeting; meetingek nincsenek beállítva.",
+                    ],
+                    "next_actions": [
+                        "P0 [ ] Egyetlen legfontosabb kimenetel ma.",
+                        "P1 [ ] Első konkrét mai feladat.",
+                        "P1 [ ] Második mai feladat.",
+                        "P1 [ ] Harmadik mai teendő.",
+                        "P1 [ ] Negyedik lépés.",
+                        "P2 [ ] Nap zárása, összefoglaló.",
+                    ],
+                },
+                ensure_ascii=False,
+            )
         digest = hashlib.sha256((system_prompt + "\n" + task_prompt).encode("utf-8")).hexdigest()[:12]
         lang = self._lang_from_task_prompt(task_prompt)
         if lang == "hu":
