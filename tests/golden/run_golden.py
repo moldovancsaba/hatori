@@ -510,6 +510,33 @@ def test_43b_outcomes_dashboard_returns_200_and_shows_metrics() -> None:
             os.environ["HATORI_LLAMA_MODEL"] = old_path
 
 
+def test_43c_formal_modules_interface() -> None:
+    """PKS, RAG, NET formal modules (interfaces.md) return expected shapes."""
+    from hatori import net
+    from hatori import pks
+    from hatori import rag
+
+    status = net.status()
+    assert_true(status in ("OFFLINE", "ONLINE-UNVERIFIED", "ONLINE-VERIFIED"), f"NET.status() must return connectivity state, got {status}")
+
+    records = pks.query({"limit": 10})
+    assert_true(isinstance(records, list), "PKS.query() must return list")
+    for r in records:
+        assert_true("provenance" in r or "status" in r, "PKS record must have provenance/status")
+
+    results = rag.search_local("nightly checklist", k=3)
+    assert_true(isinstance(results, list), "RAG.search_local() must return list")
+    if results:
+        assert_true("citation" in results[0] or "excerpt" in results[0], "RAG passage must have citation or excerpt")
+
+    aid = db_scalar("SELECT id FROM artefacts ORDER BY created_at DESC LIMIT 1;")
+    assert_true(aid != "", "fixture ingest should create at least one artefact")
+    sources = rag.get_sources([aid])
+    assert_true(isinstance(sources, list), "RAG.get_sources() must return list")
+    assert_true(len(sources) >= 1, "get_sources should return artefact for fixture")
+    assert_true("uri" in sources[0] or "title" in sources[0], "artefact row must have uri or title")
+
+
 def test_44_chat_send_creates_user_and_assistant_rows() -> None:
     client = ui_client()
     chat_id = "golden-chat-44"

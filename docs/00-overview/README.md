@@ -18,11 +18,12 @@ Build a long-lived personal agent ("{hatori}") that:
 ## Where things live
 - Charter and prompts: `docs/01-charters/`, `docs/09-prompts/`
 - Architecture decisions: `docs/02-architecture/`, ADRs in `docs/08-decisions/`
-- PKS spec and schema: `docs/03-data/`, `pks/`
+- PKS schema: `docs/03-data/` (overview), `pks/migrations/` (SQL)
 - Ops/runbooks: `docs/04-ops/`, `docs/07-runbooks/`
   - Versioning rule: `docs/04-ops/versioning-release.md`
-- Evaluation: `docs/06-evaluation/`, golden tests in `tests/golden/`
+- Evaluation: `docs/06-evaluation/` (overview), golden suite in `tests/golden/run_golden.py`
 - Audit/event logs: `logs/audit/`, `logs/events/`
+- Documentation vs code audit (implementation stage, inconsistencies): `docs/04-ops/documentation-audit.md`
 
 ## Runtime MVP commands (current)
 - `python -m hatori.cli ask "<question>" [--allow-pending] [--done] [--json]`
@@ -144,35 +145,14 @@ Local `docs/11-roadmap/*` files are archived pointers only.
 
 ## Release
 - Current stable release: `v0.8.0`
-## Model Gateway (generator routing)
-- Internal gateway module: `hatori/model_gateway.py`
-- Stable interface:
-  - `generate(prompt, opts) -> GatewayResult`
-  - `embed(texts, opts) -> EmbeddingResult`
-- Generator order:
-  - default `HATORI_GENERATOR_ORDER=mlx,ollama`
-  - MLX preferred when available and configured (`HATORI_MLX_MODEL`)
-  - automatic fallback to Ollama on MLX errors
-- Circuit breaker:
-  - process-local breaker skips repeatedly failing backends for cooldown windows.
-  - machine-readable breaker state is exposed in `/v1/health`.
-
-## Planning (SSOT)
-Planning is managed only on GitHub Project board:
-- https://github.com/users/moldovancsaba/projects/1
-
-Issue repository for product work:
-- https://github.com/moldovancsaba/mvp-factory-control/issues
-
-Use board filters:
-- `Product = {hatori}`
-- Status lanes (`IDEA BANK`, `Roadmap`, `Backlog`, `Ready`, `In Progress`, `Review`, `Blocked`, `Done`)
-
-Local `docs/11-roadmap/*` files are archived pointers only.
-
-## Release
-- Current stable release: `v0.8.0`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
+
+## Model routing (generator)
+- Implementation: `hatori/model.py` (no separate gateway module).
+- Task-based routing: `get_task_model_adapter(task)` with env `HATORI_ROUTE_<TASK>_BACKEND`, `_MODEL`, `_FALLBACK_BACKEND`, `_FALLBACK_MODEL`. Tasks include `reply_write`, `plan_write`, `context_pack` (drafter), `answer_score` (judge), etc.
+- Single-model override: `HATORI_MODEL=ollama|mlx|llamacpp|none` forces one adapter for all tasks.
+- Script-level hint: `HATORI_GENERATOR_ORDER=mlx,ollama` is used by Makefile/scripts; Python routing is task-based.
+- Health: `/v1/health` exposes `runtime_status` and `task_model_routing` (writer/drafter/judge). No circuit breaker in v1.
 
 ## API Contract
 - Canonical external contract:

@@ -1,5 +1,7 @@
 # Interfaces (Implementation Contracts)
 
+**Status:** Implemented as discrete modules in `hatori/`: `hatori.pks`, `hatori.rag`, `hatori.net`, `hatori.eval`. CLI/UI/API may still call DB/helpers directly; new code should prefer the module APIs where applicable.
+
 Canonical external API spec:
 - See `docs/10-api-contracts/hatori-api-v1.md`
 

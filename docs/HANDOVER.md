@@ -1,5 +1,39 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (#435: PKS/RAG/NET/EVAL formal modules)
+- Objective: Implement interfaces.md as discrete modules (hatori.pks, rag, net, eval).
+
+### What changed
+- **hatori/db.py:** Shared DB runner (run_psql, run_psql_json, esc_sql, jsonb_sql_literal).
+- **hatori/pks.py:** PKS.append_interaction, log_learning, write_pending, approve, deprecate, redact, query.
+- **hatori/rag.py:** RAG.index_document (delegates to cli.ingest), search_local (delegates to cli.search_runtime), get_sources (artefacts by id).
+- **hatori/net.py:** NET.status() -> OFFLINE | ONLINE-UNVERIFIED | ONLINE-VERIFIED.
+- **hatori/eval.py:** EVAL.run_golden_tests(subset=None) -> subprocess run of tests/golden/run_golden.py.
+- **tests/golden/run_golden.py:** test_43c_formal_modules_interface (NET.status, PKS.query, RAG.search_local, RAG.get_sources).
+- **docs/10-api-contracts/interfaces.md:** Status updated to "Implemented".
+- **docs/11-roadmap/LLD-documentation-audit-remediation.md:** #435 note updated.
+
+### Validation
+- Smoke: `python -c "from hatori import pks, rag, net, eval; ..."` — NET, PKS, RAG OK. Full `make test` includes test_43c (run when DB is up and fixture ingested).
+
+### SSOT
+- mvp-factory-control #435. Move to Done when evidence posted.
+
+---
+
+## 2026-03-18 - AI Developer (Documentation audit remediation + LLD + board issues)
+- Objective: Eliminate audit findings (doc/code inconsistencies, missing refs); break down into LLD and mvp-factory-control project issues.
+
+### What changed
+- **Doc fixes:** Overview (Model Gateway → Model routing, refs to 03-data/06-evaluation, duplicate block removed); API contract (health `ok`/`statusMessage`); runbook-ui (8088 dev vs 23571 full stack); runbook-local (50 → 100+ golden tests); interfaces.md (target contracts + current implementation note); added `docs/03-data/README.md`, `docs/06-evaluation/README.md`.
+- **LLD:** [docs/11-roadmap/LLD-documentation-audit-remediation.md](11-roadmap/LLD-documentation-audit-remediation.md) — deliverables D1–D7, project issues #434, #435, #436.
+- **Board:** #434 (Docs, Done) — remediation; #435 (Refactor, Backlog SOONER) — PKS/RAG/NET/EVAL modules; #436 (Plan, IDEA BANK) — circuit breaker optional.
+
+### SSOT
+- mvp-factory-control: #434, #435, #436 on project #1. Audit: [docs/04-ops/documentation-audit.md](04-ops/documentation-audit.md).
+
+---
+
 ## 2026-03-18 - AI Developer (#280: Operator dashboard — Outcomes)
 - Objective: Deliver #280 Integrator operator dashboard: sent_as_is vs edited_then_sent ratios and model-route quality visibility.
 

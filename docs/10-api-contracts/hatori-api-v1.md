@@ -84,9 +84,11 @@ Override envs:
 
 ## 8.1 GET /v1/health
 
-Response `200`:
+Response `200` (additional fields may be present; clients should ignore unknown keys):
 ```json
 {
+  "ok": true,
+  "statusMessage": "online",
   "status": "ok",
   "version": "0.x.y",
   "ui_port": 23571,
