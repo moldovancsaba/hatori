@@ -78,7 +78,10 @@ Override envs:
 ### Behavior
 - Replay of same ingest key returns same stored record and `duplicate=true`.
 - Replay of same outcome key returns existing IDs and `duplicate=true`.
+- Replay of same upload `external_event_id` returns existing artefact IDs and `duplicate=true`.
 - Do not generate new IDs on retry from client side; reuse the same external idempotency key.
+
+Replay semantics (bulk/retry, no batch endpoint): [replay-semantics.md](replay-semantics.md).
 
 ## 8) Endpoint Contracts
 
@@ -256,9 +259,11 @@ Response `200`:
 {
   "artefact_id": "<uuid>",
   "sha256": "<hex>",
-  "chunks_created": 3
+  "chunks_created": 3,
+  "duplicate": false
 }
 ```
+Replay (same `external_event_id`) returns existing IDs and `duplicate: true`; no new artefact or embedding rows.
 
 Notes:
 - Supports idempotent replay via `external_event_id` (returns existing artefact/chunk counts).

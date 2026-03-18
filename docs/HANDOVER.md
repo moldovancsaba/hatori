@@ -1,5 +1,21 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (#281: Replay semantics + board script fix)
+- Objective: Fix board script (OWNER=@me); implement #281 replay/anti-duplication.
+
+### What changed
+- **tools/scripts/ssot_board_update.sh:** Default `OWNER=@me` for user-owned projects (fixes "unknown owner type"); usage note added.
+- **#435:** Moved to Done on project #1 via script.
+- **#281:** Replay semantics doc `docs/10-api-contracts/replay-semantics.md` (no batch; per-event keys; retry behaviour). API: upload response now includes `duplicate: true` on replay; contract updated. Golden test `test_98b_api_upload_idempotent`; API contract §7 links to replay-semantics. `docs/11-roadmap/issues.md` links #281 to replay-semantics.
+
+### Validation
+- `make test`: 105/105 PASS (includes test_98b).
+
+### SSOT
+- mvp-factory-control #281. Move to Done when ready.
+
+---
+
 ## 2026-03-18 - AI Developer (#435: PKS/RAG/NET/EVAL formal modules)
 - Objective: Implement interfaces.md as discrete modules (hatori.pks, rag, net, eval).
 

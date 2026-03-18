@@ -1024,7 +1024,7 @@ async def artefacts_upload(
             ui.psql(f"SELECT count(*) FROM embeddings WHERE artefact_id='{ui._esc_sql(existing)}';").strip() or "0"
         )
         sha = ui.psql(f"SELECT COALESCE(sha256,'') FROM artefacts WHERE id='{ui._esc_sql(existing)}' LIMIT 1;").strip()
-        return {"artefact_id": existing, "sha256": sha, "chunks_created": chunks_created}
+        return {"artefact_id": existing, "sha256": sha, "chunks_created": chunks_created, "duplicate": True}
 
     meta_obj = _parse_metadata_json(metadata)
     raw_bytes = await file.read()
@@ -1047,7 +1047,7 @@ async def artefacts_upload(
         sender_id=(sender_id or "").strip() or None,
         metadata=meta_obj,
     )
-    return {"artefact_id": artefact_id, "sha256": sha, "chunks_created": chunks_created}
+    return {"artefact_id": artefact_id, "sha256": sha, "chunks_created": chunks_created, "duplicate": False}
 
 
 @app.post("/v1/artefacts/ingest_path")

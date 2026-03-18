@@ -11,6 +11,7 @@ Current version context:
 
 Design / delivery:
 - **#280** (Integrator operator dashboard): LLD and delivery plan → [docs/11-roadmap/LLD-280-integrator-operator-dashboard.md](LLD-280-integrator-operator-dashboard.md)
+- **#281** (Replay / anti-duplication): Replay semantics and single-event idempotency → [docs/10-api-contracts/replay-semantics.md](../10-api-contracts/replay-semantics.md)
 - **IDEA BANK (#281, #350, #351, #352):** Breakdown, deliverables, clarification questions, and delivery order → [docs/11-roadmap/DELIVERY-PLAN-IDEA-BANK.md](DELIVERY-PLAN-IDEA-BANK.md)
 
 Ops / audit:

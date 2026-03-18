@@ -1396,6 +1396,47 @@ def test_98_api_upload_creates_artefact_and_embeddings_txt() -> None:
             os.environ["HATORI_API_TOKEN"] = old
 
 
+def test_98b_api_upload_idempotent() -> None:
+    """Replay of same external_event_id returns duplicate=true and no new rows (#281)."""
+    old = os.environ.get("HATORI_API_TOKEN")
+    os.environ["HATORI_API_TOKEN"] = "golden-token"
+    event_id = "reply:upload-98b-idempotent"
+    try:
+        client = api_client()
+        before_art = int(db_scalar("SELECT count(*) FROM artefacts;"))
+        with UPLOAD_FIXTURE.open("rb") as fh:
+            one = client.post(
+                "/v1/artefacts/upload",
+                headers={"X-Hatori-Token": "golden-token"},
+                files={"file": (UPLOAD_FIXTURE.name, fh, "text/plain")},
+                data={"external_event_id": event_id, "kind": "doc"},
+            )
+        assert_true(one.status_code == 200, "first upload should return 200")
+        out1 = one.json()
+        aid1 = out1.get("artefact_id")
+        assert_true(bool(aid1), "first upload should return artefact_id")
+        assert_true(out1.get("duplicate") is False, "first upload should return duplicate=false")
+        with UPLOAD_FIXTURE.open("rb") as fh:
+            two = client.post(
+                "/v1/artefacts/upload",
+                headers={"X-Hatori-Token": "golden-token"},
+                files={"file": (UPLOAD_FIXTURE.name, fh, "text/plain")},
+                data={"external_event_id": event_id, "kind": "doc"},
+            )
+        assert_true(two.status_code == 200, "replay upload should return 200")
+        out2 = two.json()
+        aid2 = out2.get("artefact_id")
+        assert_true(aid1 == aid2, "replay should return same artefact_id")
+        assert_true(out2.get("duplicate") is True, "replay should return duplicate=true")
+        after_art = int(db_scalar("SELECT count(*) FROM artefacts;"))
+        assert_true(after_art == before_art + 1, "idempotent upload must not create duplicate artefact row")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_API_TOKEN", None)
+        else:
+            os.environ["HATORI_API_TOKEN"] = old
+
+
 def test_99_api_ingest_path_rejected_by_default() -> None:
     old_token = os.environ.get("HATORI_API_TOKEN")
     old_allow = os.environ.get("HATORI_ALLOW_PATH_INGEST")
@@ -1834,6 +1875,7 @@ def collect_tests() -> list:
         test_96_api_ingest_event_idempotent,
         test_97_api_search_returns_human_readable_only,
         test_98_api_upload_creates_artefact_and_embeddings_txt,
+        test_98b_api_upload_idempotent,
         test_99_api_ingest_path_rejected_by_default,
         test_100_api_outcome_sent_as_is_creates_delivery_event_and_positive_learning,
         test_101_api_outcome_edited_then_sent_creates_delivery_event_and_negative_learning_with_texts,
