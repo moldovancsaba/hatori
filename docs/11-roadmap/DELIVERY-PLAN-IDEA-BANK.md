@@ -4,7 +4,7 @@
 **SSOT issues:** [mvp-factory-control](https://github.com/moldovancsaba/mvp-factory-control) #281, #350, #351, #352.  
 **Board:** [MVP Factory Board](https://github.com/users/moldovancsaba/projects/1) — filter Product = {hatori}.
 
-**Status update:** #281 Done (replay semantics, upload duplicate, test_98b). #350 Backlog (SOONER); **D1–D6 design complete** (audit, gaps, D3 memo, D4 options, D5 roadmap, D6 draft issues — create GitHub spin-offs from [RAG-follow-up-issues-D6.md](RAG-follow-up-issues-D6.md)); execution on spin-off issues.
+**Status update:** #281 Done (replay semantics, upload duplicate, test_98b). #350 Backlog (SOONER); **D1–D6 design complete**; **Phase 1 (RAG eval in CI) implemented** — [tests/rag_eval/README.md](../../tests/rag_eval/README.md). Next: Phase 2 grounding + PKS query-scope (D6 issues 2–3); create/track GitHub spin-offs from [RAG-follow-up-issues-D6.md](RAG-follow-up-issues-D6.md).
 
 ---
 
