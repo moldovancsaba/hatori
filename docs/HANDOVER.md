@@ -1,5 +1,21 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (#350: RAG quality — D1 audit + D2 gap list)
+- Objective: Start #350; move to Backlog; deliver D1 (codebase audit) and D2 (gap list).
+
+### What changed
+- **Board:** #350 moved to Backlog (SOONER) via ssot_board_update.sh.
+- **docs/06-evaluation/RAG-retrieval-audit-D1.md:** Entry points (UI chat, API respond, CLI ask, UI/API search, RAG module); data flow (PKS, evidence, search_runtime, merge, prompt); components (retrieve_pks, retrieve_embeddings, retrieve_embeddings_semantic, merge_rank_results, embeddings adapter, chunking, online retrieval, task prompt); storage/indexing; D2 prioritised gap list (no eval, no claim→source contract, no reranker, PKS not query-scoped, etc.).
+- **docs/11-roadmap/issues.md:** Link #350 → RAG-retrieval-audit-D1.md.
+
+### Next (D3–D6)
+- D3: Decision memo (eval-first + grounding + optional rerank). D4: Architecture options. D5: Phased roadmap. D6: Follow-up implementation cards.
+
+### SSOT
+- mvp-factory-control #350.
+
+---
+
 ## 2026-03-18 - AI Developer (#281: Replay semantics + board script fix)
 - Objective: Fix board script (OWNER=@me); implement #281 replay/anti-duplication.
 
