@@ -1,5 +1,19 @@
 # Handover Log
 
+## 2026-03-19 - AI Developer (#350 Phase 3: optional RAG rerank)
+- Objective: Pluggable second-stage rerank after merge; default off; no new model dependencies for v1.
+
+### What changed
+- **hatori/cli.py:** `rerank_mode()`, `rerank_merged_results()` — `HATORI_RERANK_MODE=lexical` uses token overlap + original score; wired into `search_runtime` and `ask_runtime`.
+- **docs/06-evaluation/RAG-rerank-phase3.md:** Design + env vars.
+- **tests/golden:** `test_113`–`test_115`; suite **111** cases.
+- **Docs:** RAG D5 §4, interfaces.md, runbook-local, rag_eval README A/B note, D6 Phase 3 note; VERSION **0.8.5**.
+
+### SSOT
+- Heavy reranker (cross-encoder) still future/PO. Default remains `off` for production safety.
+
+---
+
 ## 2026-03-19 - AI Developer (#350 Phase 2: grounding + query-scoped PKS)
 - Objective: Answer grounding contract in task template + citations in prompt JSON; query-scoped PKS for UI/API reply path.
 

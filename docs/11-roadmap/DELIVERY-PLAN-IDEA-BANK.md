@@ -4,7 +4,7 @@
 **SSOT issues:** [mvp-factory-control](https://github.com/moldovancsaba/mvp-factory-control) #281, #350, #351, #352.  
 **Board:** [MVP Factory Board](https://github.com/users/moldovancsaba/projects/1) — filter Product = {hatori}.
 
-**Status update:** #281 Done (replay semantics, upload duplicate, test_98b). #350 Backlog (SOONER); **D1–D6 design complete**; **Phase 1** [tests/rag_eval/README.md](../../tests/rag_eval/README.md); **Phase 2** (grounding template + citations in summaries + `load_pks_context_for_reply`, golden 110–112). Next: Phase 3 rerank if approved; optional stricter live-model citation tests.
+**Status update:** #281 Done (replay semantics, upload duplicate, test_98b). #350 Backlog (SOONER); **D1–D6 design complete**; **Phases 1–3** in-repo (eval, grounding + query-PKS, optional `lexical` rerank — [RAG-rerank-phase3.md](../06-evaluation/RAG-rerank-phase3.md)). Optional: cross-encoder rerank (PO); stricter live-model citation tests.
 
 ---
 

@@ -393,6 +393,39 @@ def merge_rank_results(candidates: list[dict], limit: int) -> list[dict]:
     return merged[:limit]
 
 
+def rerank_mode() -> str:
+    """HATORI_RERANK_MODE: off (default) | lexical — Phase 3 #350, no extra model deps."""
+    return (os.environ.get("HATORI_RERANK_MODE") or "off").strip().lower()
+
+
+def rerank_merged_results(query: str, merged: list[dict], limit: int) -> list[dict]:
+    """
+    Second-stage rerank after merge_rank_results. Default off (no behaviour change).
+    lexical: re-score by token overlap on title+excerpt plus original retrieval score.
+    """
+    mode = rerank_mode()
+    if mode in ("", "off", "none", "0", "false", "no"):
+        return merged[:limit]
+    if mode != "lexical":
+        return merged[:limit]
+    q = (query or "").strip()
+    if not q:
+        return merged[:limit]
+    terms = tokenize(q)
+    if not terms:
+        return merged[:limit]
+    weight = float((os.environ.get("HATORI_RERANK_LEXICAL_WEIGHT") or "3.0").strip() or "3.0")
+    ranked: list[tuple[float, float, int, dict]] = []
+    for idx, item in enumerate(merged):
+        hay = f"{item.get('title') or ''} {(item.get('excerpt') or '')}"
+        ov = float(score_text(hay, terms))
+        base = float(item.get("score", 0.0))
+        combined = weight * ov + base
+        ranked.append((-combined, -base, idx, item))
+    ranked.sort()
+    return [t[3] for t in ranked[:limit]]
+
+
 def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = False) -> dict:
     current_connectivity = connectivity_state()
     classification = classify_request(question)
@@ -401,6 +434,7 @@ def ask_runtime(question: str, allow_pending: bool = False, done_signal: bool = 
     emb_kw_hits = retrieve_embeddings(question, limit=6)
     emb_sem_hits = retrieve_embeddings_semantic(question, limit=6)
     merged = merge_rank_results(pks_hits + emb_kw_hits + emb_sem_hits, limit=6)
+    merged = rerank_merged_results(question, merged, 6)
 
     evidence = merged
     if evidence:
@@ -627,6 +661,7 @@ def search_runtime(query: str, limit: int, allow_pending: bool) -> dict:
     emb_kw_hits = retrieve_embeddings(query, limit=limit)
     emb_sem_hits = retrieve_embeddings_semantic(query, limit=limit)
     merged = merge_rank_results(pks_hits + emb_kw_hits + emb_sem_hits, limit=limit)
+    merged = rerank_merged_results(query, merged, limit)
     return {
         "query": query,
         "limit": limit,

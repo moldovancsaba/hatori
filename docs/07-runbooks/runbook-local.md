@@ -62,13 +62,23 @@ This runs:
 - DB lock contention guard (`DB busy; retry` on concurrent mutation attempts)
 - schema + seed self-checks
 - **RAG retrieval eval** (`tests/rag_eval/run_rag_eval.py` — recall@k / MRR over fixed cases; runs on a clean DB before golden)
-- 108 golden tests for offline runtime behavior (including chat + upload UI flows)
+- 111 golden tests for offline runtime behavior (including chat + upload UI flows)
 
 Run only RAG eval (does not reset DB):
 
 ```bash
 make rag-eval
 ```
+
+### Optional RAG rerank (#350 Phase 3)
+
+Second-stage rerank after PKS + embedding merge (no default behaviour change):
+
+- `HATORI_RERANK_MODE=off` (default) — unchanged ordering.
+- `HATORI_RERANK_MODE=lexical` — boost candidates by query token overlap on title+excerpt (see `docs/06-evaluation/RAG-rerank-phase3.md`).
+- Optional: `HATORI_RERANK_LEXICAL_WEIGHT` (default `3.0`).
+
+Set in `hatori.env` when testing retrieval quality; leave unset in production unless validated.
 
 Concurrency rule:
 - Keep DB-mutating commands sequential (`make reset`, `make test`, `./tools/scripts/planning_check.sh`).

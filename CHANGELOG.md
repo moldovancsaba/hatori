@@ -2,6 +2,14 @@
 
 All notable changes to this project are tracked here.
 
+## [0.8.5] - 2026-03-19
+
+### Added
+- **#350 Phase 3 — optional RAG rerank:** `rerank_merged_results()` after `merge_rank_results` in `search_runtime` and `ask_runtime`. `HATORI_RERANK_MODE=off` (default) or `lexical` (token overlap on title+excerpt + original score); `HATORI_RERANK_LEXICAL_WEIGHT` (default `3.0`). Doc [RAG-rerank-phase3.md](docs/06-evaluation/RAG-rerank-phase3.md). Golden `test_113`–`test_115`.
+
+### Changed
+- RAG D5 Phase 3 marked implemented (lexical path); runbook-local env section; interfaces.md; golden count 111.
+
 ## [0.8.4] - 2026-03-19
 
 ### Added

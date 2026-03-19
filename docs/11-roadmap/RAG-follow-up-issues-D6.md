@@ -7,6 +7,8 @@
 
 **Phase 2 (issues 2–3):** Largely **implemented** in-repo (2026-03-19): task template grounding + `citation` in `summarize_*_for_model`; `load_pks_context_for_reply` for UI chat and API respond; golden `test_110`–`test_112`. Optional follow-up: stricter live-model citation assertions, env flag to disable query-scoped PKS if needed.
 
+**Phase 3 (issue 4):** **Lexical rerank path** implemented (2026-03-19): `rerank_merged_results` / `HATORI_RERANK_MODE` — see [RAG-rerank-phase3.md](../06-evaluation/RAG-rerank-phase3.md). Cross-encoder or external reranker remains future/PO-gated.
+
 **Action:** Create the issues below in **mvp-factory-control** (or your SSOT tracker), link each **back to #350**, and add to **GitHub Project #1** with Product = {hatori}. Labels suggestion: `enhancement`, `hatori`, `rag` (if used).
 
 ---

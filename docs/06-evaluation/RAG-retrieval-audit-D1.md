@@ -43,6 +43,7 @@
 | **Embeddings (keyword)** | `hatori/cli.py` `retrieve_embeddings()` | Keyword scoring over last 800 embedding rows (content); no vector used. |
 | **Embeddings (semantic)** | `hatori/cli.py` `retrieve_embeddings_semantic()` | Query embedded via adapter; pgvector nearest-neighbour; term-overlap filter; score threshold 0.30. |
 | **Merge / rank** | `hatori/cli.py` `merge_rank_results()` | Dedupe by citation; sort by score; take top N. |
+| **Rerank (optional)** | `hatori/cli.py` `rerank_merged_results()` | After merge; `HATORI_RERANK_MODE=lexical` or default off — [RAG-rerank-phase3.md](RAG-rerank-phase3.md). |
 | **Embedding adapter** | `hatori/embeddings.py` | `HashEmbeddingAdapter` (default, deterministic) or `SentenceTransformersAdapter`; `embed(texts)` → vectors. |
 | **Chunking** | `ui/app.py` and `hatori/cli.py` `chunk_text()` | 900 chars, 120 overlap; used at ingest (API upload, CLI ingest) and for drafter. |
 | **Online retrieval** | `ui/app.py` `online_search_snippets()` | SearXNG HTTP; used only in UI chat when `should_route_online_search()` and not OFFLINE. |

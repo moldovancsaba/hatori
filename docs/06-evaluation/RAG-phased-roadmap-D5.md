@@ -64,14 +64,14 @@
 
 | Work item | Acceptance hint |
 |-----------|-----------------|
-| **Design note** | Where rerank sits (after `merge_rank_results`, input size cap, timeout). |
-| **Implementation** | Pluggable adapter (e.g. `None` vs local model); default off. |
-| **Eval** | Phase 1 metrics show improvement on rerank branch vs off (A/B in runner). |
-| **Ops** | Runbook: env vars, memory, fallbacks. |
+| **Design note** | Where rerank sits (after `merge_rank_results`, input size cap, timeout). **Done:** [RAG-rerank-phase3.md](RAG-rerank-phase3.md). |
+| **Implementation** | Pluggable adapter (e.g. `None` vs local model); default off. **Done:** `rerank_merged_results()` + `HATORI_RERANK_MODE` (`off` default, `lexical` = overlap + score, no new model deps). |
+| **Eval** | Phase 1 metrics show improvement on rerank branch vs off (A/B in runner). **Partial:** golden 113–115; manual A/B on `tests/rag_eval` optional. |
+| **Ops** | Runbook: env vars, memory, fallbacks. **Done:** runbook-local + design doc. |
 
-**Exit criteria:** Rerank optional path merged; eval proves non-regression when disabled; documented PO sign-off in issue or ADR.
+**Exit criteria:** Rerank optional path merged; eval proves non-regression when disabled; documented PO sign-off in issue or ADR. **Met** for lexical optional path + default off (2026-03-19). Heavy reranker still PO-gated.
 
-**Primary follow-up issue:** D6 — “Optional reranker (PO approval).”
+**Primary follow-up issue:** D6 — “Optional reranker (PO approval).” Cross-encoder mode can extend `rerank_merged_results` later.
 
 ---
 

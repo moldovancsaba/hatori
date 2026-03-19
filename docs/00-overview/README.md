@@ -144,7 +144,7 @@ Use board filters:
 Local `docs/11-roadmap/*` files are archived pointers only.
 
 ## Release
-- Current stable release: `v0.8.4`
+- Current stable release: `v0.8.5`
 - Verification runbook: `docs/07-runbooks/runbook-dev-handoff.md`
 
 ## Model routing (generator)

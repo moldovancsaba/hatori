@@ -16,6 +16,7 @@ Canonical external API spec:
 - RAG.index_document(path, metadata) -> chunk+embed+store
 - RAG.search_local(query, k, filters) -> passages + provenance
 - RAG.get_sources(source_ids) -> artefacts for citations
+- Optional second-stage rerank: `HATORI_RERANK_MODE=lexical` (default `off`) after merge in `hatori.cli.search_runtime` / `ask_runtime` — see [RAG-rerank-phase3.md](../06-evaluation/RAG-rerank-phase3.md)
 
 ## Connectivity
 - NET.status() -> {OFFLINE, ONLINE}

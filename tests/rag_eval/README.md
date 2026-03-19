@@ -39,6 +39,17 @@ Or:
 make rag-eval   # does not reset; use on a DB you prepared
 ```
 
+## Optional rerank (Phase 3)
+
+Compare metrics with default merge vs lexical rerank:
+
+```bash
+make reset && . .venv/bin/activate && python tests/rag_eval/run_rag_eval.py
+HATORI_RERANK_MODE=lexical make reset && . .venv/bin/activate && python tests/rag_eval/run_rag_eval.py
+```
+
+See [RAG-rerank-phase3.md](../../docs/06-evaluation/RAG-rerank-phase3.md).
+
 ## Adding cases
 
 1. Add or reuse a fixture under `tests/rag_eval/fixtures/` or `tests/golden/fixtures/`.

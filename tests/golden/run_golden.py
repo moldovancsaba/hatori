@@ -1848,6 +1848,58 @@ def test_112_reply_pks_context_prefers_query_relevant() -> None:
     )
 
 
+def test_113_rerank_default_off_search_still_works() -> None:
+    out = run_cli_json(["search", "NightlyWarmupChecklistToken", "--json", "--limit", "5"])
+    assert_true(len(out.get("results", [])) >= 1, "search with default rerank off must return hits")
+
+
+def test_114_rerank_lexical_reorders_merged_list() -> None:
+    from hatori.cli import rerank_merged_results
+
+    old_mode = os.environ.get("HATORI_RERANK_MODE")
+    old_w = os.environ.get("HATORI_RERANK_LEXICAL_WEIGHT")
+    try:
+        os.environ["HATORI_RERANK_MODE"] = "lexical"
+        # Default weight 3.0 is too small vs a large raw score; use explicit weight for this unit check.
+        os.environ["HATORI_RERANK_LEXICAL_WEIGHT"] = "20"
+        items = [
+            {"citation": "x:low_overlap", "score": 50.0, "title": "A", "excerpt": "generic content only here"},
+            {
+                "citation": "x:high_overlap",
+                "score": 5.0,
+                "title": "B",
+                "excerpt": "zebra phase3 rerank marker xy unique snippet",
+            },
+        ]
+        out = rerank_merged_results("phase3 rerank marker zebra", items, 2)
+        assert_true(
+            out[0].get("citation") == "x:high_overlap",
+            "lexical rerank should promote query term overlap over raw retrieval score",
+        )
+    finally:
+        if old_mode is None:
+            os.environ.pop("HATORI_RERANK_MODE", None)
+        else:
+            os.environ["HATORI_RERANK_MODE"] = old_mode
+        if old_w is None:
+            os.environ.pop("HATORI_RERANK_LEXICAL_WEIGHT", None)
+        else:
+            os.environ["HATORI_RERANK_LEXICAL_WEIGHT"] = old_w
+
+
+def test_115_search_with_lexical_rerank_env_ok() -> None:
+    old = os.environ.get("HATORI_RERANK_MODE")
+    try:
+        os.environ["HATORI_RERANK_MODE"] = "lexical"
+        out = run_cli_json(["search", "nightly checklist", "--json", "--limit", "5"])
+        assert_true(isinstance(out.get("results"), list), "lexical rerank mode should return results list")
+    finally:
+        if old is None:
+            os.environ.pop("HATORI_RERANK_MODE", None)
+        else:
+            os.environ["HATORI_RERANK_MODE"] = old
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1958,6 +2010,9 @@ def collect_tests() -> list:
         test_110_summarize_pks_and_evidence_include_citations,
         test_111_task_prompt_includes_grounding_contract,
         test_112_reply_pks_context_prefers_query_relevant,
+        test_113_rerank_default_off_search_still_works,
+        test_114_rerank_lexical_reorders_merged_list,
+        test_115_search_with_lexical_rerank_env_ok,
     ]
 
 
