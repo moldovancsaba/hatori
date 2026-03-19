@@ -57,7 +57,7 @@ Recommended: fix or remove outdated references, align overview/README with actua
 
 | Doc | Says | Code reality |
 |-----|------|--------------|
-| `docs/07-runbooks/runbook-local.md` | "50 golden tests" | **~100** test functions in `tests/golden/run_golden.py` (exact count from `def test_`). |
+| `docs/07-runbooks/runbook-local.md` | "50 golden tests" → "100+ golden tests" (remediated) | **105** tests in golden suite (collect_tests). |
 
 **Severity:** Low.
 
@@ -71,9 +71,9 @@ Recommended: fix or remove outdated references, align overview/README with actua
 |-----|------|--------------|
 | `docs/10-api-contracts/interfaces.md` | **PKS:** `PKS.append_interaction`, `PKS.log_learning`, `PKS.write_pending`, `PKS.approve/deprecate/redact`, `PKS.query`. **RAG:** `RAG.index_document`, `RAG.search_local`, `RAG.get_sources`. **Connectivity:** `NET.status()`. **Evaluation:** `EVAL.run_golden_tests`. | **No such modules.** Interactions: direct SQL / `insert_interaction` in `ui/app.py` and `api/app.py`. Learning: `insert_learning` in ui/api/cli. PKS: CLI `hatori pks approve/deprecate`, UI `/pks/*` routes, direct SQL. RAG: chunk/embed in `api/app.py` and `ui/app.py`; search in `hatori/cli.py` (`retrieve_embeddings`, `retrieve_embeddings_semantic`, `retrieve_pks`, `merge_rank_results`) and UI `load_local_evidence_context` / API search path. No `NET.status()`; connectivity is env-derived (e.g. `connectivity_state()` in cli). Golden: `tests/golden/run_golden.py` (no EVAL module). |
 
-**Severity:** High for "implementation contract" interpretation — code does not implement these interfaces.
+**Severity:** High for "implementation contract" interpretation — code did not implement these interfaces at audit time.
 
-**Recommendation:** Label interfaces.md as **target/design**: "Implementation contracts (target state)". Add a short "Current implementation" note: PKS/RAG/connectivity/eval are implemented via direct DB access and CLI/UI/API endpoints, not via these abstract interfaces yet.
+**Status (remediated):** Implemented as discrete modules in `hatori/`: `hatori.pks`, `hatori.rag`, `hatori.net`, `hatori.eval`, `hatori.db`. interfaces.md updated to "Implemented". See LLD-documentation-audit-remediation.md and #435.
 
 ---
 
@@ -216,7 +216,7 @@ What is **actually implemented** vs documented.
 |------------|----------------|
 | **Circuit breaker** (overview) | Not in code. Health does not expose breaker state. |
 | **`hatori/model_gateway.py`** (overview) | File does not exist. |
-| **PKS/RAG/NET/EVAL modules** (interfaces.md) | Not present; behaviour implemented ad hoc in api/ui/cli. |
+| **PKS/RAG/NET/EVAL modules** (interfaces.md) | **Remediated:** Implemented as `hatori/pks.py`, `rag.py`, `net.py`, `eval.py`, `db.py` (#435). |
 
 ---
 
@@ -237,8 +237,7 @@ What is **actually implemented** vs documented.
    - Update golden test count to "100+ golden tests" or "golden suite in tests/golden/run_golden.py".
 
 5. **Interfaces (interfaces.md)**  
-   - Add header: "Target implementation contracts (not yet implemented as discrete modules)."  
-   - Add "Current implementation" sentence: PKS/RAG/connectivity/eval implemented via direct DB and api/ui/cli, not via these interfaces.
+   - **Done.** interfaces.md now states "Implemented" and lists hatori.pks, rag, net, eval.
 
 6. **Optional**  
    - Add `docs/03-data/README.md` and `docs/06-evaluation/README.md` as short placeholders linking to `pks/migrations/` and `tests/golden/`, or remove those paths from overview.

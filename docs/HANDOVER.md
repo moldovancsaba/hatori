@@ -1,5 +1,17 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (Documentation, versioning, SSOT audit)
+- Objective: Audit docs, versioning, and SSOT against implemented code; fix inconsistencies.
+
+### What changed
+- **docs/04-ops/documentation-versioning-ssot-audit.md:** New audit: versioning (VERSION/CHANGELOG vs shipped work), doc vs code (audit remediation status, golden count 105), SSOT (board vs HANDOVER/LLD/DELIVERY-PLAN). Recommended fixes checklist.
+- **Applied fixes:** documentation-audit.md (interfaces remediated, item 5 done, golden 105); LLD-documentation-audit-remediation.md (#435 Done); DELIVERY-PLAN status note (#281 Done, #350 D1–D3 done); issues.md (SSOT wording); HANDOVER (#281/#435 Done); runbook-local 105 golden tests; CHANGELOG Unreleased section for #281, #435, #350, audit, board script; issues.md link to new audit.
+
+### SSOT
+- Version remains 0.8.0; Unreleased in CHANGELOG until next bump (e.g. 0.8.1).
+
+---
+
 ## 2026-03-18 - AI Developer (#350: RAG quality — D1 audit + D2 gap list)
 - Objective: Start #350; move to Backlog; deliver D1 (codebase audit) and D2 (gap list).
 
@@ -22,13 +34,10 @@
 ### What changed
 - **tools/scripts/ssot_board_update.sh:** Default `OWNER=@me` for user-owned projects (fixes "unknown owner type"); usage note added.
 - **#435:** Moved to Done on project #1 via script.
-- **#281:** Replay semantics doc `docs/10-api-contracts/replay-semantics.md` (no batch; per-event keys; retry behaviour). API: upload response now includes `duplicate: true` on replay; contract updated. Golden test `test_98b_api_upload_idempotent`; API contract §7 links to replay-semantics. `docs/11-roadmap/issues.md` links #281 to replay-semantics.
-
-### Validation
-- `make test`: 105/105 PASS (includes test_98b).
+- **#281:** Replay semantics doc `docs/10-api-contracts/replay-semantics.md` (no batch; per-event keys; retry behaviour). API: upload response now includes `duplicate: true` on replay; contract updated. Golden test `test_98b_api_upload_idempotent`; API contract §7 links to replay-semantics.
 
 ### SSOT
-- mvp-factory-control #281. Move to Done when ready.
+- #281 Done on project #1. `make test` 105/105 PASS.
 
 ---
 
@@ -49,7 +58,7 @@
 - Smoke: `python -c "from hatori import pks, rag, net, eval; ..."` — NET, PKS, RAG OK. Full `make test` includes test_43c (run when DB is up and fixture ingested).
 
 ### SSOT
-- mvp-factory-control #435. Move to Done when evidence posted.
+- #435 Done on project #1.
 
 ---
 
@@ -59,7 +68,7 @@
 ### What changed
 - **Doc fixes:** Overview (Model Gateway → Model routing, refs to 03-data/06-evaluation, duplicate block removed); API contract (health `ok`/`statusMessage`); runbook-ui (8088 dev vs 23571 full stack); runbook-local (50 → 100+ golden tests); interfaces.md (target contracts + current implementation note); added `docs/03-data/README.md`, `docs/06-evaluation/README.md`.
 - **LLD:** [docs/11-roadmap/LLD-documentation-audit-remediation.md](11-roadmap/LLD-documentation-audit-remediation.md) — deliverables D1–D7, project issues #434, #435, #436.
-- **Board:** #434 (Docs, Done) — remediation; #435 (Refactor, Backlog SOONER) — PKS/RAG/NET/EVAL modules; #436 (Plan, IDEA BANK) — circuit breaker optional.
+- **Board:** #434 Done, #435 Done (PKS/RAG/NET/EVAL modules), #436 IDEA BANK.
 
 ### SSOT
 - mvp-factory-control: #434, #435, #436 on project #1. Audit: [docs/04-ops/documentation-audit.md](04-ops/documentation-audit.md).

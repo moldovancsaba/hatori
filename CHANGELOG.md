@@ -2,6 +2,18 @@
 
 All notable changes to this project are tracked here.
 
+## [0.8.1] - 2026-03-18
+
+### Added
+- **#281 (Replay semantics):** Replay semantics doc (`docs/10-api-contracts/replay-semantics.md`); upload response `duplicate: true` on replay; golden test `test_98b_api_upload_idempotent`; API contract §7 and §8.6 updated.
+- **#435 (PKS/RAG/NET/EVAL modules):** Formal modules `hatori/db.py`, `pks.py`, `rag.py`, `net.py`, `eval.py`; interfaces.md "Implemented"; golden test `test_43c_formal_modules_interface`.
+- **#350 (RAG quality):** D1 codebase audit and D2 gap list (`docs/06-evaluation/RAG-retrieval-audit-D1.md`); D3 decision memo (`docs/06-evaluation/RAG-decision-memo-D3.md`).
+- **Documentation/versioning/SSOT audit:** `docs/04-ops/documentation-versioning-ssot-audit.md`; doc and SSOT fixes applied.
+
+### Changed
+- **Board script:** `tools/scripts/ssot_board_update.sh` default `OWNER=@me` for user-owned GitHub projects (fixes "unknown owner type").
+- **Docs:** documentation-audit.md remediated notes (interfaces implemented); LLD and DELIVERY-PLAN status updates; issues.md SSOT wording; HANDOVER card states; runbook golden count 105.
+
 ## [0.8.0] - 2026-03-18
 
 ### Fixed

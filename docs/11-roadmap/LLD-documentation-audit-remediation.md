@@ -30,7 +30,7 @@
 | Issue | Title | Type | Status | Description |
 |-------|--------|------|--------|-------------|
 | **#434** | Documentation audit remediation — align docs with code | Docs | Done | Track doc fixes D1–D7. Remediation applied in hatori; card on project #1. |
-| **#435** | Refactor: PKS/RAG/NET/EVAL as formal modules (interfaces.md) | Refactor | In Progress / Done | Implemented: `hatori/db.py`, `hatori/pks.py`, `hatori/rag.py`, `hatori/net.py`, `hatori/eval.py`. Golden test `test_43c_formal_modules_interface` exercises PKS.query, NET.status, RAG.search_local, RAG.get_sources. See audit §2.5, §5.8. |
+| **#435** | Refactor: PKS/RAG/NET/EVAL as formal modules (interfaces.md) | Refactor | Done | Implemented: `hatori/db.py`, `hatori/pks.py`, `hatori/rag.py`, `hatori/net.py`, `hatori/eval.py`. Golden test `test_43c_formal_modules_interface`. Card moved to Done on project #1. |
 | **#436** | Optional: Circuit breaker for model backends | Plan | IDEA BANK | Process-local breaker for failing backends; expose state in /v1/health. See audit §2.1, §5.8. |
 
 ---

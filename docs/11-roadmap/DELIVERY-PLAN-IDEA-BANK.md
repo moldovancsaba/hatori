@@ -4,6 +4,8 @@
 **SSOT issues:** [mvp-factory-control](https://github.com/moldovancsaba/mvp-factory-control) #281, #350, #351, #352.  
 **Board:** [MVP Factory Board](https://github.com/users/moldovancsaba/projects/1) — filter Product = {hatori}.
 
+**Status update:** #281 Done (replay semantics, upload duplicate, test_98b). #350 Backlog (SOONER); D1–D3 done (audit, gap list, decision memo); next D4–D6.
+
 ---
 
 ## 1. Issue summary and proposed order

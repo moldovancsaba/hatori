@@ -1,12 +1,9 @@
 # Issue Register
 
-Canonical issue-style planning is maintained in:
-- `docs/11-roadmap/backlog.md`
-
-This file exists as a stable pointer for teams asking for the current issue list.
+Active planning and backlog: **GitHub Project #1** (see [backlog.md](backlog.md) for pointer). This file links to design/delivery docs and version context.
 
 Current version context:
-- `v0.8.0`
+- `v0.8.1`
 - Last updated: 2026-03-18
 
 Design / delivery:
@@ -16,5 +13,6 @@ Design / delivery:
 - **IDEA BANK (#281, #350, #351, #352):** Breakdown, deliverables, clarification questions, and delivery order → [docs/11-roadmap/DELIVERY-PLAN-IDEA-BANK.md](DELIVERY-PLAN-IDEA-BANK.md)
 
 Ops / audit:
-- **Documentation vs code audit:** Inconsistencies, missing refs, implementation stage of core functions → [docs/04-ops/documentation-audit.md](../04-ops/documentation-audit.md)
-- **Audit remediation LLD:** Completed doc fixes + board issues breakdown → [docs/11-roadmap/LLD-documentation-audit-remediation.md](LLD-documentation-audit-remediation.md)
+- **Documentation vs code audit:** Inconsistencies, missing refs, implementation stage → [docs/04-ops/documentation-audit.md](../04-ops/documentation-audit.md)
+- **Documentation, versioning, SSOT audit:** Version/CHANGELOG/SSOT vs implemented state, fix checklist → [docs/04-ops/documentation-versioning-ssot-audit.md](../04-ops/documentation-versioning-ssot-audit.md)
+- **Audit remediation LLD:** Doc fixes + board issues → [docs/11-roadmap/LLD-documentation-audit-remediation.md](LLD-documentation-audit-remediation.md)
