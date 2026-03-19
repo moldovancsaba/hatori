@@ -57,7 +57,7 @@ Recommended: fix or remove outdated references, align overview/README with actua
 
 | Doc | Says | Code reality |
 |-----|------|--------------|
-| `docs/07-runbooks/runbook-local.md` | "50 golden tests" → "100+ golden tests" (remediated) | **105** tests in golden suite (collect_tests). |
+| `docs/07-runbooks/runbook-local.md` | "50 golden tests" → "100+ golden tests" (remediated) | **108** tests in golden suite (collect_tests). |
 
 **Severity:** Low.
 

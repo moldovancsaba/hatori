@@ -1,5 +1,20 @@
 # Handover Log
 
+## 2026-03-19 - AI Developer (#350 Phase 2: grounding + query-scoped PKS)
+- Objective: Answer grounding contract in task template + citations in prompt JSON; query-scoped PKS for UI/API reply path.
+
+### What changed
+- **docs/09-prompts/task-prompt-template.md:** Answer grounding rules (cite `pks:` / `emb:` when stating facts from retrieved JSON).
+- **ui/app.py:** `load_pks_context_for_reply` (retrieve_pks + recent fill); `summarize_pks_for_model` / `summarize_evidence_for_model` emit `citation`; `load_pks_context` includes `id`. Chat uses `load_pks_context_for_reply`.
+- **api/app.py:** `_generate_reply` and idempotent respond path use `load_pks_context_for_reply`.
+- **tests/golden/run_golden.py:** `test_110`–`test_112` (citations, grounding text, PKS query scope).
+- **Docs:** RAG D1/D5, runbook 108 golden, documentation-audit count; VERSION **0.8.4**.
+
+### SSOT
+- #350 Phase 3 = optional rerank (PO). D6 issues 2–3 largely addressed in-repo.
+
+---
+
 ## 2026-03-18 - AI Developer (#350 Phase 1: RAG retrieval eval in CI)
 - Objective: Implement Phase 1 from RAG-phased-roadmap-D5 — eval fixtures, runner, recall@k/MRR, wired into `make test`.
 

@@ -1780,6 +1780,74 @@ def test_109_makefile_run_uses_ensure_service_port() -> None:
     assert_true("ensure_service_port.sh" in source, "Makefile run targets should use ensure_service_port.sh")
 
 
+def test_110_summarize_pks_and_evidence_include_citations() -> None:
+    import ui.app as uiapp
+
+    sp = uiapp.summarize_pks_for_model(
+        [{"id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "title": "T", "status": "Approved", "body": "body text"}],
+        limit=4,
+    )
+    assert_true(bool(sp), "summarize_pks should return rows")
+    assert_true(
+        sp[0].get("citation") == "pks:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        "summarize_pks must include pks citation",
+    )
+    se = uiapp.summarize_evidence_for_model(
+        [
+            {
+                "citation": "emb:artifact:0",
+                "artefact_uri": "/tmp/x/note.txt",
+                "provenance": "LocalDoc",
+                "excerpt": "snippet",
+            }
+        ],
+        limit=4,
+    )
+    assert_true(bool(se), "summarize_evidence should return rows")
+    assert_true(se[0].get("citation") == "emb:artifact:0", "summarize_evidence must preserve citation")
+
+
+def test_111_task_prompt_includes_grounding_contract() -> None:
+    import ui.app as uiapp
+
+    tp = uiapp.build_task_prompt(
+        "What does the charter say?",
+        "OFFLINE",
+        {
+            "pks_approved": [
+                {
+                    "citation": "pks:test-id",
+                    "title": "Example",
+                    "status": "Approved",
+                    "summary": "Example summary",
+                }
+            ],
+            "local_evidence_top": [],
+        },
+        None,
+    )
+    low = tp.lower()
+    assert_true("answer grounding" in low, "task prompt should include Answer grounding section")
+    assert_true("citation" in low, "task prompt should mention citations for grounding")
+
+
+def test_112_reply_pks_context_prefers_query_relevant() -> None:
+    """Query-scoped PKS ranks matching Approved record ahead of newer irrelevant rows (#350 Phase 2)."""
+    import ui.app as uiapp
+
+    rid_match = upsert_approved_record("A", "Phase2 older match", "PHASE2_MATCH_TOKEN_XYZZY only in this approved body.")
+    rid_noise = upsert_approved_record("A", "Phase2 newer noise", "Unrelated moon phases and tide tables without match token.")
+    db_scalar(f"UPDATE pks_records SET updated_at = now() - interval '400 days' WHERE id = '{rid_match}'")
+    db_scalar(f"UPDATE pks_records SET updated_at = now() WHERE id = '{rid_noise}'")
+    rows = uiapp.load_pks_context_for_reply("PHASE2_MATCH_TOKEN_XYZZY", limit=6)
+    assert_true(len(rows) >= 1, "load_pks_context_for_reply should return at least one row")
+    combined_first = (rows[0].get("body") or "") + (rows[0].get("excerpt") or "")
+    assert_true(
+        "PHASE2_MATCH_TOKEN_XYZZY" in combined_first,
+        "first PKS row should be query-scored match, not only recent-by-date",
+    )
+
+
 def collect_tests() -> list:
     return [
         test_01_ask_json_shape,
@@ -1887,6 +1955,9 @@ def collect_tests() -> list:
         test_107_env_init_creates_file_with_permissions,
         test_108_service_script_refuses_without_env,
         test_109_makefile_run_uses_ensure_service_port,
+        test_110_summarize_pks_and_evidence_include_citations,
+        test_111_task_prompt_includes_grounding_contract,
+        test_112_reply_pks_context_prefers_query_relevant,
     ]
 
 

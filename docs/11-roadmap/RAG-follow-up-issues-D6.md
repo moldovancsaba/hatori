@@ -5,6 +5,8 @@
 
 **Note:** Phase 1 (eval set + CI) is **implemented** in-repo — see [tests/rag_eval/README.md](../../tests/rag_eval/README.md). Issue #1 below can be used to track **extensions** (more cases, optional metrics) or closed as done once verified on the board.
 
+**Phase 2 (issues 2–3):** Largely **implemented** in-repo (2026-03-19): task template grounding + `citation` in `summarize_*_for_model`; `load_pks_context_for_reply` for UI chat and API respond; golden `test_110`–`test_112`. Optional follow-up: stricter live-model citation assertions, env flag to disable query-scoped PKS if needed.
+
 **Action:** Create the issues below in **mvp-factory-control** (or your SSOT tracker), link each **back to #350**, and add to **GitHub Project #1** with Product = {hatori}. Labels suggestion: `enhancement`, `hatori`, `rag` (if used).
 
 ---

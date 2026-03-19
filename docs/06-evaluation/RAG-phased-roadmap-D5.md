@@ -40,19 +40,19 @@
 
 | Work item | Acceptance hint |
 |-----------|-----------------|
-| **Prompt / template** | `build_task_prompt` (or adjacent) instructs: cite sources for factual claims; use stable citation labels matching `retrieved_context`. |
-| **Tests** | Golden or rag_eval cases where model output is stubbed or constrained check for citation presence when evidence rows exist (pragmatic, not brittle). |
-| **Docs** | Short subsection in API/UI doc or prompts doc describing grounding expectations. |
+| **Prompt / template** | `build_task_prompt` (or adjacent) instructs: cite sources for factual claims; use stable citation labels matching `retrieved_context`. **Done:** `docs/09-prompts/task-prompt-template.md` Answer grounding block; `pks_approved` / `local_evidence_top` entries include `citation` via `summarize_pks_for_model` / `summarize_evidence_for_model` (`ui/app.py`). |
+| **Tests** | Golden or rag_eval cases where model output is stubbed or constrained check for citation presence when evidence rows exist (pragmatic, not brittle). **Done:** `test_110_*`, `test_111_*` (citations in summaries + grounding text in task prompt). Optional later: live-model citation checks. |
+| **Docs** | Short subsection in API/UI doc or prompts doc describing grounding expectations. **Done:** task template + this roadmap. |
 
 ### 2b — PKS query-scoping (recommended in D3 as pipeline tuning)
 
 | Work item | Acceptance hint |
 |-----------|-----------------|
-| **Behaviour** | UI/API reply path uses query-relevant PKS (e.g. merge `retrieve_pks` top‑m with existing evidence) instead of or in addition to “recent 6 only.” |
-| **Tests** | Golden test: query that matches an older Approved PKS row ranks it above irrelevant recent rows (fixture-dependent). |
+| **Behaviour** | UI/API reply path uses query-relevant PKS (e.g. merge `retrieve_pks` top‑m with existing evidence) instead of or in addition to “recent 6 only.” **Done:** `load_pks_context_for_reply` in `ui/app.py`; chat + API respond use it. |
+| **Tests** | Golden test: query that matches an older Approved PKS row ranks it above irrelevant recent rows (fixture-dependent). **Done:** `test_112_reply_pks_context_prefers_query_relevant`. |
 | **Rollback** | Feature flag or env toggle optional if risk warrants. |
 
-**Exit criteria:** Grounding instructions merged; at least one automated test guards behaviour; PKS query-scoping implemented or explicitly deferred with issue link.
+**Exit criteria:** Grounding instructions merged; at least one automated test guards behaviour; PKS query-scoping implemented or explicitly deferred with issue link. **Met** (2026-03-19) for template + summaries + reply PKS loader + golden 110–112.
 
 **Primary follow-up issues:** D6 — “Answer grounding contract”; “PKS query-scoped context in reply path.”
 

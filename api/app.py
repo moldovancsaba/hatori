@@ -533,7 +533,7 @@ def _generate_reply(
         mapped_role = "assistant" if role == "me" else "user"
         history_turns.append({"role": mapped_role, "content": txt})
     history_turns = history_turns[-12:]
-    pks_rows = ui.load_pks_context(limit=6)
+    pks_rows = ui.load_pks_context_for_reply(query=message, limit=6)
     evidence_rows = ui.load_local_evidence_context(query=message, limit=5)
     source_lines = ui.build_human_sources_lines(language_code, pks_rows, evidence_rows)
 
@@ -764,7 +764,7 @@ def agent_respond(body: RespondBody, x_hatori_token: str | None = Header(default
             language = (row.get("language") or "").strip() or ui.detect_message_language(message)
             source_lines = ui.build_human_sources_lines(
                 language,
-                ui.load_pks_context(limit=6),
+                ui.load_pks_context_for_reply(query=message, limit=6),
                 ui.load_local_evidence_context(query=message, limit=5),
             )
             return {

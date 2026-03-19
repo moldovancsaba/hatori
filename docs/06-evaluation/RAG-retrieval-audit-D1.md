@@ -21,7 +21,7 @@
 ## 2) Data flow (UI/API reply path)
 
 1. **User message** (UI form or API `POST /v1/agent/respond` body).
-2. **PKS context:** `load_pks_context(limit=6)` in `ui/app.py` → SQL: `pks_records` WHERE status='Approved' ORDER BY updated_at DESC LIMIT 6`. No query-time scoring; fixed “recent approved” slice.
+2. **PKS context (reply path):** `load_pks_context_for_reply(query, limit=6)` in `ui/app.py` → `retrieve_pks(query)` (keyword-scored Approved rows) first, then fill with recent Approved not already included. Legacy `load_pks_context` (recent-only) remains for non-reply use.
 3. **Local evidence:** `load_local_evidence_context(query, limit=5)` → calls `hatori.cli.search_runtime(query, limit, allow_pending=False)`.
 4. **search_runtime** (`hatori/cli.py`):
    - `retrieve_pks(question, allow_pending, limit)` — keyword score over title+body (tokenize + `score_text`), up to 400 PKS rows, return top `limit`.

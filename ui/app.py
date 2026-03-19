@@ -29,6 +29,7 @@ from hatori.model import OllamaAdapter
 from hatori.model import prefer_ollama_if_available
 from hatori.prompts import build_system_prompt
 from hatori.prompts import build_task_prompt
+from hatori.cli import retrieve_pks
 from hatori.cli import search_runtime
 from hatori.cli import connectivity_state
 
@@ -209,12 +210,61 @@ def load_chat_history_for_prompt(chat_id: str, limit: int = 10) -> list[dict]:
 
 def load_pks_context(limit: int = 8) -> list[dict]:
     return psql_json(
-        "SELECT module, status, title, body "
+        "SELECT id::text AS id, module, status, title, body "
         "FROM pks_records "
         "WHERE status='Approved' "
         "ORDER BY updated_at DESC "
         f"LIMIT {int(limit)}"
     )
+
+
+def load_pks_context_for_reply(query: str, limit: int = 6, allow_pending: bool = False) -> list[dict]:
+    """
+    PKS rows for chat/API reply: query-scored via retrieve_pks first, then fill with recent Approved
+    rows not already included (Phase 2 #350).
+    """
+    q = (query or "").strip()
+    lim = max(1, int(limit))
+    scored = retrieve_pks(q, allow_pending=allow_pending, limit=lim) if q else []
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for hit in scored:
+        cit = (hit.get("citation") or "").strip()
+        if not cit.startswith("pks:"):
+            continue
+        pid = cit.split(":", 1)[1].strip()
+        if not pid or pid in seen:
+            continue
+        seen.add(pid)
+        merged.append(
+            {
+                "id": pid,
+                "module": hit.get("module"),
+                "status": (hit.get("status") or "Approved"),
+                "title": (hit.get("title") or "").strip(),
+                "body": ((hit.get("excerpt") or "") or "").strip(),
+            }
+        )
+    if len(merged) >= lim:
+        return merged[:lim]
+    need = lim - len(merged)
+    cap = max(need * 4, lim * 2)
+    recent_rows = psql_json(
+        "SELECT id::text AS id, module, status, title, body "
+        "FROM pks_records "
+        "WHERE status='Approved' "
+        "ORDER BY updated_at DESC "
+        f"LIMIT {int(cap)}"
+    )
+    for r in recent_rows:
+        rid = (r.get("id") or "").strip()
+        if not rid or rid in seen:
+            continue
+        seen.add(rid)
+        merged.append(r)
+        if len(merged) >= lim:
+            break
+    return merged[:lim]
 
 
 def load_local_evidence_context(query: str, limit: int = 6) -> list[dict]:
@@ -244,11 +294,15 @@ def _short_path(path: str) -> str:
 def summarize_pks_for_model(rows: list[dict], limit: int = 4) -> list[dict]:
     out: list[dict] = []
     for row in rows[: max(0, int(limit))]:
+        rid = (row.get("id") or "").strip()
+        citation = f"pks:{rid}" if rid else ""
+        body = (row.get("body") or row.get("excerpt") or "").strip()
         out.append(
             {
+                "citation": citation,
                 "title": (row.get("title") or "").strip()[:120],
                 "status": (row.get("status") or "").strip(),
-                "summary": (row.get("body") or "").strip()[:180],
+                "summary": body[:180],
             }
         )
     return out
@@ -259,8 +313,10 @@ def summarize_evidence_for_model(rows: list[dict], limit: int = 4) -> list[dict]
     for row in rows[: max(0, int(limit))]:
         uri = (row.get("artefact_uri") or "").strip()
         filename = os.path.basename(uri) if uri else ""
+        cit = (row.get("citation") or "").strip()
         out.append(
             {
+                "citation": cit,
                 "filename": filename or _short_path(uri),
                 "provenance": (row.get("provenance") or "").strip(),
                 "excerpt": (row.get("excerpt") or "").strip()[:160],
@@ -1331,7 +1387,7 @@ def chat_send(chat_id: str = Form(""), message: str = Form(...)) -> RedirectResp
 
     language_code = detect_message_language(text_raw)
     history_turns = load_chat_history_for_prompt(chat_id=chat_id, limit=10)
-    pks_rows = load_pks_context(limit=6)
+    pks_rows = load_pks_context_for_reply(query=text_raw, limit=6)
     evidence_rows = load_local_evidence_context(query=text_raw, limit=5)
     source_lines = build_human_sources_lines(language_code, pks_rows, evidence_rows)
 

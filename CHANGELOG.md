@@ -2,6 +2,14 @@
 
 All notable changes to this project are tracked here.
 
+## [0.8.4] - 2026-03-19
+
+### Added
+- **#350 Phase 2:** `load_pks_context_for_reply(query)` — query-scored PKS via `retrieve_pks` + recent Approved fill; used by UI chat and API `/v1/agent/respond`. `summarize_pks_for_model` / `summarize_evidence_for_model` include `citation` for prompt JSON. Task template **Answer grounding** rules (`docs/09-prompts/task-prompt-template.md`). Golden tests `test_110`–`test_112`. `load_pks_context` SELECT now includes `id`.
+
+### Changed
+- Docs: RAG D1 reply-path note, RAG D5 Phase 2 marked done, runbook-local golden count 108, documentation-audit golden count.
+
 ## [0.8.3] - 2026-03-18
 
 ### Added

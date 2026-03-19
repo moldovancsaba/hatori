@@ -10,3 +10,5 @@ The suite covers offline runtime behaviour, chat and upload UI flows, API ingest
 **RAG quality (#350) — design docs:** [RAG-retrieval-audit-D1.md](RAG-retrieval-audit-D1.md) (audit + gaps), [RAG-decision-memo-D3.md](RAG-decision-memo-D3.md), [RAG-architecture-options-D4.md](RAG-architecture-options-D4.md), [RAG-phased-roadmap-D5.md](RAG-phased-roadmap-D5.md). Draft spin-off issues: [RAG-follow-up-issues-D6.md](../11-roadmap/RAG-follow-up-issues-D6.md).
 
 **Phase 1 — retrieval eval in CI:** [tests/rag_eval/README.md](../../tests/rag_eval/README.md) (`make test` runs it after `dod_gate`, before golden). Programmatic entry: `hatori.eval.run_rag_eval_suite()`.
+
+**Phase 2 — grounding + query-scoped PKS:** Task template [task-prompt-template.md](../09-prompts/task-prompt-template.md) (Answer grounding); `ui.app.load_pks_context_for_reply`; prompt JSON citations via `summarize_*_for_model`. Golden `test_110`–`test_112`.
