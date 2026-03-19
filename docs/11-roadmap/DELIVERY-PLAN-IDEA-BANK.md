@@ -4,7 +4,7 @@
 **SSOT issues:** [mvp-factory-control](https://github.com/moldovancsaba/mvp-factory-control) #281, #350, #351, #352.  
 **Board:** [MVP Factory Board](https://github.com/users/moldovancsaba/projects/1) — filter Product = {hatori}.
 
-**Status update:** #281 Done (replay semantics, upload duplicate, test_98b). #350 Backlog (SOONER); D1–D3 done (audit, gap list, decision memo); next D4–D6.
+**Status update:** #281 Done (replay semantics, upload duplicate, test_98b). #350 Backlog (SOONER); **D1–D6 design complete** (audit, gaps, D3 memo, D4 options, D5 roadmap, D6 draft issues — create GitHub spin-offs from [RAG-follow-up-issues-D6.md](RAG-follow-up-issues-D6.md)); execution on spin-off issues.
 
 ---
 
@@ -60,9 +60,9 @@
 | D1 | **Codebase audit** | Document current retrieval path (entry points, embeddings, PKS, evidence, online); list components and data flow. |
 | D2 | **Retrieval quality gap list** | Prioritised list of gaps (e.g. no rerank, no eval, weak citation in prompts). |
 | D3 | **Decision memo** | Chosen path (recommendation: eval-first + answer-grounding + targeted rerank); rationale; out-of-scope. |
-| D4 | **Candidate architecture options** | Short doc with 2–3 options (e.g. eval-only vs eval+rerank vs eval+grounding contract), tradeoffs, dependencies. |
-| D5 | **Phased roadmap** | Phase 1: eval set + metrics. Phase 2: grounding contract or rerank (per memo). Phase 3: further tuning. |
-| D6 | **Follow-up implementation cards** | Create 1–3 new issues (e.g. "RAG eval set and metrics", "Answer grounding contract") and link from #350. |
+| D4 | **Candidate architecture options** | Short doc with 2–3 options (e.g. eval-only vs eval+rerank vs eval+grounding contract), tradeoffs, dependencies. **Done:** [RAG-architecture-options-D4.md](../06-evaluation/RAG-architecture-options-D4.md). |
+| D5 | **Phased roadmap** | Phase 1: eval set + metrics. Phase 2: grounding contract or rerank (per memo). Phase 3: further tuning. **Done:** [RAG-phased-roadmap-D5.md](../06-evaluation/RAG-phased-roadmap-D5.md). |
+| D6 | **Follow-up implementation cards** | Create 1–3 new issues (e.g. "RAG eval set and metrics", "Answer grounding contract") and link from #350. **Draft bodies:** [RAG-follow-up-issues-D6.md](RAG-follow-up-issues-D6.md) — paste into mvp-factory-control and track on Project #1. |
 
 ### Clarification questions (PO)
 - **Scope of "local-first":** Are we allowed to add a **reranker model** (e.g. small local model or external API) or must all improvements be prompt/config only until explicitly approved?

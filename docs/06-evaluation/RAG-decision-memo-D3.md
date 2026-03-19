@@ -42,15 +42,16 @@
 
 ---
 
-## 5) Next steps (D4–D6)
+## 5) Next steps (D4–D6) — **done (docs)**
 
-- **D4:** Short doc with 2–3 architecture options (e.g. eval-only vs eval+grounding vs eval+grounding+rerank), tradeoffs, dependencies.
-- **D5:** Phased roadmap (Phase 1: eval set + metrics; Phase 2: grounding contract + optional PKS query-scoping; Phase 3: rerank if approved).
-- **D6:** Create follow-up implementation issues (e.g. “RAG eval set and metrics”, “Answer grounding contract”) and link from #350.
+- **D4:** [RAG-architecture-options-D4.md](RAG-architecture-options-D4.md) — options A/B/C, comparison matrix, cross-cutting choices.
+- **D5:** [RAG-phased-roadmap-D5.md](RAG-phased-roadmap-D5.md) — Phase 1–3, exit criteria, sequencing.
+- **D6:** [RAG-follow-up-issues-D6.md](../11-roadmap/RAG-follow-up-issues-D6.md) — draft GitHub issue bodies for mvp-factory-control; create issues and link from #350.
 
 ---
 
 ## 6) References
 
 - Audit and gaps: [RAG-retrieval-audit-D1.md](RAG-retrieval-audit-D1.md)
+- D4 / D5 / D6: [RAG-architecture-options-D4.md](RAG-architecture-options-D4.md), [RAG-phased-roadmap-D5.md](RAG-phased-roadmap-D5.md), [RAG-follow-up-issues-D6.md](../11-roadmap/RAG-follow-up-issues-D6.md)
 - Delivery plan: [DELIVERY-PLAN-IDEA-BANK.md](../11-roadmap/DELIVERY-PLAN-IDEA-BANK.md) §3

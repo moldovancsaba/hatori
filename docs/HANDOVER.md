@@ -1,5 +1,20 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (#350: RAG quality — D4–D6)
+- Objective: Complete #350 design deliverables D4 (architecture options), D5 (phased roadmap), D6 (draft follow-up issues).
+
+### What changed
+- **docs/06-evaluation/RAG-architecture-options-D4.md:** Options A (eval only), B (eval + grounding, recommended), C (+ rerank); comparison matrix; PKS/eval/rerank cross-cutting notes.
+- **docs/06-evaluation/RAG-phased-roadmap-D5.md:** Phase 1 eval+metrics, Phase 2 grounding + PKS query-scope, Phase 3 conditional rerank; exit criteria and sequencing.
+- **docs/11-roadmap/RAG-follow-up-issues-D6.md:** Four copy-paste GitHub issue drafts (eval CI, grounding, PKS query-scope, optional rerank blocked on PO).
+- **Cross-links:** RAG-decision-memo-D3 §5 marked done; RAG-retrieval-audit-D1 §7; DELIVERY-PLAN #350 status; issues.md #350 line; docs/06-evaluation/README.md.
+- **Release:** VERSION **0.8.2**; CHANGELOG [0.8.2]; README / overview / issues version context.
+
+### SSOT / next actions
+- **mvp-factory-control #350:** Create spin-off issues from D6 doc; link back to #350; move execution to those cards. Optionally mark #350 design-complete.
+
+---
+
 ## 2026-03-18 - AI Developer (Documentation, versioning, SSOT audit)
 - Objective: Audit docs, versioning, and SSOT against implemented code; fix inconsistencies.
 

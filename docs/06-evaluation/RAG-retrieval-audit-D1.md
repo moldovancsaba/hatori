@@ -84,4 +84,8 @@
 ## 7) References
 
 - Delivery plan: [DELIVERY-PLAN-IDEA-BANK.md](../11-roadmap/DELIVERY-PLAN-IDEA-BANK.md) §3 #350.
+- D3 decision: [RAG-decision-memo-D3.md](RAG-decision-memo-D3.md).
+- D4 options: [RAG-architecture-options-D4.md](RAG-architecture-options-D4.md).
+- D5 roadmap: [RAG-phased-roadmap-D5.md](RAG-phased-roadmap-D5.md).
+- D6 follow-up issue drafts: [RAG-follow-up-issues-D6.md](../11-roadmap/RAG-follow-up-issues-D6.md).
 - Interfaces (RAG): [interfaces.md](../10-api-contracts/interfaces.md) — `RAG.search_local`, `RAG.index_document`, `RAG.get_sources`.

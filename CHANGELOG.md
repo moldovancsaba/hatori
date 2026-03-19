@@ -2,6 +2,11 @@
 
 All notable changes to this project are tracked here.
 
+## [0.8.2] - 2026-03-18
+
+### Added
+- **#350 (RAG quality) — D4–D6:** Architecture options [RAG-architecture-options-D4.md](docs/06-evaluation/RAG-architecture-options-D4.md); phased roadmap [RAG-phased-roadmap-D5.md](docs/06-evaluation/RAG-phased-roadmap-D5.md); draft follow-up GitHub issues [RAG-follow-up-issues-D6.md](docs/11-roadmap/RAG-follow-up-issues-D6.md). D1 references and DELIVERY-PLAN/issues register updated.
+
 ## [0.8.1] - 2026-03-18
 
 ### Added
