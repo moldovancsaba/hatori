@@ -8,8 +8,8 @@
 - **docs/06-evaluation/RAG-retrieval-audit-D1.md:** Entry points (UI chat, API respond, CLI ask, UI/API search, RAG module); data flow (PKS, evidence, search_runtime, merge, prompt); components (retrieve_pks, retrieve_embeddings, retrieve_embeddings_semantic, merge_rank_results, embeddings adapter, chunking, online retrieval, task prompt); storage/indexing; D2 prioritised gap list (no eval, no claim→source contract, no reranker, PKS not query-scoped, etc.).
 - **docs/11-roadmap/issues.md:** Link #350 → RAG-retrieval-audit-D1.md.
 
-### Next (D3–D6)
-- D3: Decision memo (eval-first + grounding + optional rerank). D4: Architecture options. D5: Phased roadmap. D6: Follow-up implementation cards.
+### D3 done
+- **docs/06-evaluation/RAG-decision-memo-D3.md:** Chosen path: eval-first → answer grounding → targeted rerank (if approved). Rationale, out-of-scope, assumptions (eval set public; reranker prompt/config only until PO approval). Next: D4 options, D5 roadmap, D6 follow-up cards.
 
 ### SSOT
 - mvp-factory-control #350.
