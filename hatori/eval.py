@@ -1,6 +1,7 @@
 """
 Evaluation — implementation of docs/10-api-contracts/interfaces.md.
 EVAL.run_golden_tests(subset=None) -> pass/fail + reasons.
+EVAL.run_rag_eval_suite() -> pass/fail for retrieval eval (tests/rag_eval).
 """
 import subprocess
 import sys
