@@ -1,0 +1,6 @@
+RAG evaluation — keyword retrieval fixture
+
+Unique marker token: RAGEVAL_KEYWORD_ONLY_XQ7K2
+
+This document exists only for tests/rag_eval: the marker should match keyword scoring
+over embedding chunks. Additional words pad the chunk for chunking and embedding.

@@ -1,5 +1,19 @@
 # Handover Log
 
+## 2026-03-18 - AI Developer (#350 Phase 1: RAG retrieval eval in CI)
+- Objective: Implement Phase 1 from RAG-phased-roadmap-D5 — eval fixtures, runner, recall@k/MRR, wired into `make test`.
+
+### What changed
+- **tests/rag_eval/:** `cases.json` (semantic, keyword, playbook, PKS cases), `run_rag_eval.py`, `fixtures/rag_eval_keyword_doc.txt`, `README.md`.
+- **Makefile:** Run `run_rag_eval.py` after `dod_gate`, before `run_golden.py`; target `make rag-eval`.
+- **hatori/eval.py:** `run_rag_eval_suite()`; fix repo `ROOT` to `Path(__file__).resolve().parents[1]`.
+- **Docs:** interfaces.md (EVAL.run_rag_eval_suite), runbook-local, docs/06-evaluation/README.md, RAG-phased-roadmap-D5 Phase 1 marked done; VERSION **0.8.3**.
+
+### SSOT
+- #350: Phase 2 next (grounding + PKS query-scope per D5/D6).
+
+---
+
 ## 2026-03-18 - AI Developer (#350: RAG quality — D4–D6)
 - Objective: Complete #350 design deliverables D4 (architecture options), D5 (phased roadmap), D6 (draft follow-up issues).
 

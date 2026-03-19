@@ -3,6 +3,8 @@
 **Parent:** [mvp-factory-control#350](https://github.com/moldovancsaba/mvp-factory-control/issues/350).  
 **Roadmap:** [RAG-phased-roadmap-D5.md](../06-evaluation/RAG-phased-roadmap-D5.md).
 
+**Note:** Phase 1 (eval set + CI) is **implemented** in-repo — see [tests/rag_eval/README.md](../../tests/rag_eval/README.md). Issue #1 below can be used to track **extensions** (more cases, optional metrics) or closed as done once verified on the board.
+
 **Action:** Create the issues below in **mvp-factory-control** (or your SSOT tracker), link each **back to #350**, and add to **GitHub Project #1** with Product = {hatori}. Labels suggestion: `enhancement`, `hatori`, `rag` (if used).
 
 ---

@@ -23,6 +23,7 @@ Canonical external API spec:
 
 ## Evaluation
 - EVAL.run_golden_tests(subset=None) -> pass/fail + reasons
+- EVAL.run_rag_eval_suite() -> pass/fail + reasons (retrieval recall@k / MRR; `tests/rag_eval/`)
 
 Assertions:
 - no fabricated citations

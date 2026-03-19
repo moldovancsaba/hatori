@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/moldovancsaba/hatori/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/moldovancsaba/hatori/ci.yml?branch=main&label=CI&style=for-the-badge" alt="CI"></a>
-  <img src="https://img.shields.io/badge/version-v0.8.2-2563EB?style=for-the-badge" alt="Version">
+  <img src="https://img.shields.io/badge/version-v0.8.3-2563EB?style=for-the-badge" alt="Version">
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-0F172A?style=for-the-badge" alt="Platform">
   <img src="https://img.shields.io/badge/api-v1-0EA5E9?style=for-the-badge" alt="API v1">
 </p>
@@ -212,7 +212,7 @@ make integration-acceptance
 ## Versioning and Releases
 
 Current version:
-- `v0.8.2` (from [`VERSION`](VERSION))
+- `v0.8.3` (from [`VERSION`](VERSION))
 
 Release and SemVer policy:
 - [`docs/04-ops/versioning-release.md`](docs/04-ops/versioning-release.md)

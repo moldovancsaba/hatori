@@ -61,7 +61,14 @@ make test
 This runs:
 - DB lock contention guard (`DB busy; retry` on concurrent mutation attempts)
 - schema + seed self-checks
+- **RAG retrieval eval** (`tests/rag_eval/run_rag_eval.py` — recall@k / MRR over fixed cases; runs on a clean DB before golden)
 - 105 golden tests for offline runtime behavior (including chat + upload UI flows)
+
+Run only RAG eval (does not reset DB):
+
+```bash
+make rag-eval
+```
 
 Concurrency rule:
 - Keep DB-mutating commands sequential (`make reset`, `make test`, `./tools/scripts/planning_check.sh`).

@@ -15,7 +15,12 @@ test:
 	./tools/scripts/db_lock_contention_test.sh
 	./tools/scripts/self_test.sh
 	./tools/scripts/dod_gate.sh
+	. .venv/bin/activate && python tests/rag_eval/run_rag_eval.py
 	. .venv/bin/activate && python tests/golden/run_golden.py
+
+.PHONY: rag-eval
+rag-eval:
+	. .venv/bin/activate && python tests/rag_eval/run_rag_eval.py
 
 .PHONY: run-ui
 run-ui:

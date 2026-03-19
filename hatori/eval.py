@@ -7,8 +7,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1].parent
+ROOT = Path(__file__).resolve().parents[1]  # repo root (parent of hatori package)
 GOLDEN_SCRIPT = ROOT / "tests" / "golden" / "run_golden.py"
+RAG_EVAL_SCRIPT = ROOT / "tests" / "rag_eval" / "run_rag_eval.py"
 
 
 def run_golden_tests(subset: int | None = None) -> dict[str, Any]:
@@ -32,6 +33,31 @@ def run_golden_tests(subset: int | None = None) -> dict[str, Any]:
         capture_output=True,
         text=True,
         timeout=600,
+    )
+    reasons = (proc.stderr or "").strip() or (proc.stdout or "").strip()
+    return {
+        "ok": proc.returncode == 0,
+        "reason": reasons or ("PASS" if proc.returncode == 0 else "FAIL"),
+        "returncode": proc.returncode,
+    }
+
+
+def run_rag_eval_suite() -> dict[str, Any]:
+    """
+    Run RAG retrieval eval (tests/rag_eval). Expects DB already migrated/seeded.
+    """
+    if not RAG_EVAL_SCRIPT.is_file():
+        return {
+            "ok": False,
+            "reason": f"RAG eval script not found: {RAG_EVAL_SCRIPT}",
+            "returncode": -1,
+        }
+    proc = subprocess.run(
+        [sys.executable, str(RAG_EVAL_SCRIPT)],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     reasons = (proc.stderr or "").strip() or (proc.stdout or "").strip()
     return {

@@ -2,6 +2,14 @@
 
 All notable changes to this project are tracked here.
 
+## [0.8.3] - 2026-03-18
+
+### Added
+- **#350 Phase 1 — RAG retrieval eval:** `tests/rag_eval/` (`cases.json`, `run_rag_eval.py`, fixtures, README); metrics mean recall@k and MRR; `make test` runs eval after `dod_gate`, before golden; `make rag-eval` for standalone. `EVAL.run_rag_eval_suite()` in `hatori/eval.py`; interfaces.md updated. `hatori/eval.py` repo `ROOT` path fixed (`parents[1]`).
+
+### Changed
+- **runbook-local.md:** Document RAG eval step and `make rag-eval`.
+
 ## [0.8.2] - 2026-03-18
 
 ### Added

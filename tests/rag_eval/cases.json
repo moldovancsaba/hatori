@@ -1,0 +1,45 @@
+[
+  {
+    "id": "semantic_garage_no_literal_car",
+    "description": "Semantic path: query uses 'car' but fixture text avoids the token (see golden test_25).",
+    "ingest": [
+      "tests/golden/fixtures/semantic_garage.txt"
+    ],
+    "query": "car maintenance routine",
+    "expect_uri_contains": "semantic_garage.txt",
+    "k": 12
+  },
+  {
+    "id": "keyword_marker_chunk",
+    "description": "Keyword path over embedding rows: unique token in a dedicated artefact.",
+    "ingest": [
+      "tests/rag_eval/fixtures/rag_eval_keyword_doc.txt"
+    ],
+    "query": "RAGEVAL_KEYWORD_ONLY_XQ7K2",
+    "expect_uri_contains": "rag_eval_keyword_doc.txt",
+    "k": 8
+  },
+  {
+    "id": "offline_playbook_token",
+    "description": "Golden-style keyword retrieval against offline_playbook fixture.",
+    "ingest": [
+      "tests/golden/fixtures/offline_playbook.txt"
+    ],
+    "query": "NightlyWarmupChecklistToken",
+    "expect_uri_contains": "offline_playbook.txt",
+    "k": 10
+  },
+  {
+    "id": "pks_approved_keyword",
+    "description": "PKS retrieval: Approved record body contains a unique token; search must return pks citation.",
+    "ingest": [],
+    "pks": {
+      "module": "A",
+      "title": "RAG eval PKS seed",
+      "body": "RAGEVAL_PKS_UNIQUE_TOKEN_Z99 body text for retrieval evaluation only.",
+      "status": "Approved"
+    },
+    "query": "RAGEVAL_PKS_UNIQUE_TOKEN_Z99",
+    "k": 8
+  }
+]

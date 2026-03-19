@@ -20,15 +20,15 @@
 
 | Work item | Acceptance hint |
 |-----------|-----------------|
-| **Fixtures** | Small curated set under e.g. `tests/rag_eval/` (or agreed path): ingested snippets or stable artefact IDs + queries + expected chunk_ids or citation keys. |
-| **Runner** | Script or pytest module that: ingests/fixtures DB state (or uses golden-style setup), runs `search_runtime` (or narrower API), asserts metrics. |
-| **Metrics** | At least one of: recall@k, MRR, or “expected citation appears in top‑k results”; document definitions in README in eval folder. |
-| **CI** | `make test` or dedicated target (e.g. `make rag-eval`) documented in runbook; fast enough for default CI or optional job clearly documented. |
+| **Fixtures** | Small curated set under e.g. `tests/rag_eval/` (or agreed path): ingested snippets or stable artefact IDs + queries + expected chunk_ids or citation keys. **Done:** `tests/rag_eval/fixtures/`, `cases.json`, reuse golden `semantic_garage.txt` / `offline_playbook.txt`. |
+| **Runner** | Script or pytest module that: ingests/fixtures DB state (or uses golden-style setup), runs `search_runtime` (or narrower API), asserts metrics. **Done:** `tests/rag_eval/run_rag_eval.py` (CLI `search`); `hatori.eval.run_rag_eval_suite()`. |
+| **Metrics** | At least one of: recall@k, MRR, or “expected citation appears in top‑k results”; document definitions in README in eval folder. **Done:** per-case recall@k + MRR; mean summary in runner output. |
+| **CI** | `make test` or dedicated target (e.g. `make rag-eval`) documented in runbook; fast enough for default CI or optional job clearly documented. **Done:** `make test` runs RAG eval after `dod_gate`, before golden; `make rag-eval` for ad hoc. |
 | **Baseline** | Record baseline numbers in doc or comment in repo so regressions are visible. |
 
-**Exit criteria:** CI (or documented job) runs eval; failing case reproduces a known bad retrieval; no required change to production prompt yet.
+**Exit criteria:** CI (or documented job) runs eval; failing case reproduces a known bad retrieval; no required change to production prompt yet. **Met** (2026-03-18): `make test` includes RAG eval on clean post-seed DB.
 
-**Primary follow-up issue:** See D6 — “RAG eval set and CI metrics.”
+**Primary follow-up issue:** D6 — “RAG eval set and CI metrics” (implementation landed; issue can track extensions / more cases).
 
 ---
 
