@@ -614,11 +614,12 @@ def ingest(path_str: str) -> dict:
         sha = hashlib.sha256(raw).hexdigest()
         media_type, _ = mimetypes.guess_type(str(fpath))
         meta = {"source": "cli.ingest", "path": str(fpath), "chunk_count": len(chunks)}
+        media_sql = "NULL" if media_type is None else f"'{_esc_sql(media_type)}'"
 
         psql(
             "INSERT INTO artefacts (id, kind, uri, title, media_type, sha256, metadata) "
-            f"VALUES (\x27{artefact_id}\x27, \x27file\x27, \x27{_esc_sql(str(fpath))}\x27, \x27{_esc_sql(fpath.name)}\x27, "
-            f"{('NULL' if media_type is None else '\x27' + _esc_sql(media_type) + '\x27')}, \x27{sha}\x27, \x27{_esc_sql(json.dumps(meta, ensure_ascii=False))}\x27::jsonb);"
+            f"VALUES ('{artefact_id}', 'file', '{_esc_sql(str(fpath))}', '{_esc_sql(fpath.name)}', "
+            f"{media_sql}, '{sha}', '{_esc_sql(json.dumps(meta, ensure_ascii=False))}'::jsonb);"
         )
         audit("ingest", "artefact", artefact_id, {"path": str(fpath), "chunks": len(chunks)})
         artefacts_created += 1
