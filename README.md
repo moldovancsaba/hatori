@@ -235,6 +235,8 @@ Rule summary:
 
 ## Documentation Map
 
+- [Project board review and manual movement / Scrum journal](docs/PROJECT_BOARD_MOVEMENT_LOG.md)
+
 - Overview: [`docs/00-overview/README.md`](docs/00-overview/README.md)
 - Architecture: [`docs/02-architecture/architecture.md`](docs/02-architecture/architecture.md)
 - Data/PKS spec: [`docs/03-data/pks-spec.md`](docs/03-data/pks-spec.md)
